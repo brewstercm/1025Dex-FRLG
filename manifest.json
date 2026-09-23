@@ -1,0 +1,25 @@
+{
+  "id": "1025dex",
+  "name": "1025Dex - FRLG",
+  "version": "1.1.19",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "games": [
+    "firered"
+  ],
+  "game_version": ">=0.2.63 <2.0.0",
+  "category": "CONTENT",
+  "priority": 300,
+  "permissions": [
+    "engine_internals"
+  ],
+  "dependencies": [],
+  "conflicts": [
+    "national_dex",
+    "g9-battle-sprites",
+    "firered_gen_encounters"
+  ],
+  "description": "FireRed only: all 1025 Pokemon with correctly mapped cries, 64x64 animated battle sprites, HD animated party icons, complete National Dex and generation-selectable wild encounters.",
+  "github": "brewstercm/1025Dex-FRLG"
+}

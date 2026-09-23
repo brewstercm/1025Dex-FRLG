@@ -24,6 +24,12 @@ return function(mod)
     return active
   end
 
+  local Areas=data("pokedex_areas.lua")
+  local okAreas,areaErr=pcall(Areas.install,mod,policy,readSelection)
+  if not okAreas then
+    mod.log:warn("FireRed Pokedex Area integration unavailable: "..tostring(areaErr))
+  end
+
   local okRows,Rows=pcall(require,"src.ui.game3.option_rows")
   if okRows and Rows and type(Rows.build)=="function" and not Rows.__completeDexWilds then
     Rows.__completeDexWilds=true

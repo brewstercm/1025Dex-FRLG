@@ -219,7 +219,7 @@ return function(mod, chart, national, gen2shape, generation, era, display, gen3s
     end
   end
 
-  if chart then
+  if chart and not gen3 then
     if type(chart.types) == "table" then
       for id, record in pairs(chart.types) do
         safe(function() claim(mod.content.type_chart, id, record) end)
@@ -249,7 +249,7 @@ return function(mod, chart, national, gen2shape, generation, era, display, gen3s
     end
     if type(national.patch) == "table" then
       for id, partial in pairs(national.patch) do
-        if safe(function() mod.content.pokemon:patch(id, partial) end) then
+        if safe(function() mod.content.pokemon:patch(id, gen3 and gen3shape.romPatch(partial) or partial) end) then
           patched = patched + 1
         end
       end
@@ -325,11 +325,13 @@ return function(mod, chart, national, gen2shape, generation, era, display, gen3s
       end
       -- the dex list and its number width come from constants; both were
       -- seeded pre-merge (src/core/Data.lua seedDefaults) so patch them here
-      safe(function() mod.content.constants:patch("dexSize", dexSize) end)
-      safe(function()
-        mod.content.constants:patch("dexDigits",
-          math.max(3, #tostring(dexSize)))
-      end)
+      if not gen3 then
+        safe(function() mod.content.constants:patch("dexSize", dexSize) end)
+        safe(function()
+          mod.content.constants:patch("dexDigits",
+            math.max(3, #tostring(dexSize)))
+        end)
+      end
     end
   end
 

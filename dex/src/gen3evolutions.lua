@@ -1,345 +1,374 @@
--- FireRed gameplay-evolution adapter for 1025Dex.
---
--- The generated files under data/evolutions/generated/ are also used by the
--- Pokédex UI. This module translates the subset FireRed can execute into the
--- Gen1Recomp Gen 3 evolution row format.
---
--- It intentionally uses mod:read() rather than require()/loadfile(): 1025Dex
--- is loaded from a mod archive and its sibling files are not on package.path.
-
+-- Install the shipped evolution graph in FireRed's numeric species registry.
+-- Species from National #387 onward have no ROM evolution rows of their own.
 local M = {}
 
-local overridesCache
-
-local function compileModFile(mod, name, source)
-  local chunk, err = load(source, "@" .. mod.path .. "/" .. name)
-  if not chunk then return nil, err end
-  local ok, result = pcall(chunk)
-  if not ok then return nil, result end
-  return result
-end
-
-local function readLua(mod, name, optional)
-  local source = mod:read(name)
-  if not source then
-    if optional then return nil end
-    return nil, name .. " is missing"
-  end
-  return compileModFile(mod, name, source)
-end
-
-local function loadOverrides(mod)
-  if overridesCache ~= nil then return overridesCache end
-  local data, err = readLua(mod, "data/evolutions/compat_overrides.lua", true)
-  if type(data) ~= "table" then
-    if err then
-      mod.log:warn("evolution compatibility overrides failed to load (%s)",
-        tostring(err))
-    end
-    data = {}
-  end
-  overridesCache = data
-  return data
-end
-
--- Load the existing generated evolution database. These files are unchanged
--- display/source data; no edits to the generated shards are required.
-function M.load(mod)
-  local result = {}
-  for shard = 1, 14 do
-    local name = ("data/evolutions/generated/%03d.lua"):format(shard)
-    local data, err = readLua(mod, name, false)
-    if type(data) == "table" then
-      for id, record in pairs(data) do result[id] = record end
-    else
-      mod.log:warn("%s could not be loaded for gameplay evolutions (%s)",
-        name, tostring(err))
-    end
-  end
-  return result
-end
-
-local function normalizeItem(value)
-  if value == nil then return nil end
-  return tostring(value):upper()
-    :gsub("[^A-Z0-9]+", "_")
-    :gsub("^_+", "")
-    :gsub("_+$", "")
-end
-
--- FireRed already contains these six usable evolution stones.
-local FIRE_RED_STONES = {
-  SUN_STONE = "SUN_STONE",
-  MOON_STONE = "MOON_STONE",
-  FIRE_STONE = "FIRE_STONE",
-  THUNDER_STONE = "THUNDERSTONE",
-  WATER_STONE = "WATER_STONE",
-  LEAF_STONE = "LEAF_STONE",
+-- Branches where a held trade item should take priority over a normal
+-- level-up evolution.  Keeping this data-driven lets later trade-item
+-- branches use the same native evolution.check / pokemon.evolved path.
+local LEVEL_HELD_PRIORITY = {
+  {
+    sourceDex = 79,          -- Slowpoke
+    targetDex = 199,         -- Slowking
+    normalTargetDex = 80,    -- Slowbro
+    minLevel = 37,
+    itemKeys = {"KINGS_ROCK", "KING'S_ROCK", "KING'S ROCK", "KINGSROCK"},
+    consume = true,
+  },
+  {
+    sourceDex = 61,          -- Poliwhirl
+    targetDex = 186,         -- Politoed
+    minLevel = 1,
+    itemKeys = {"KINGS_ROCK", "KING'S_ROCK", "KING'S ROCK", "KINGSROCK"},
+    consume = true,
+  },
+  {
+    sourceDex = 95,          -- Onix
+    targetDex = 208,         -- Steelix
+    minLevel = 1,
+    itemKeys = {"METAL_COAT", "METAL COAT", "METALCOAT"},
+    consume = true,
+  },
+  {
+    sourceDex = 123,         -- Scyther
+    targetDex = 212,         -- Scizor
+    minLevel = 1,
+    itemKeys = {"METAL_COAT", "METAL COAT", "METALCOAT"},
+    consume = true,
+  },
+  {
+    sourceDex = 117,         -- Seadra
+    targetDex = 230,         -- Kingdra
+    minLevel = 1,
+    itemKeys = {"DRAGON_SCALE", "DRAGON SCALE", "DRAGONSCALE"},
+    consume = true,
+  },
+  {
+    sourceDex = 137,         -- Porygon
+    targetDex = 233,         -- Porygon2
+    minLevel = 1,
+    itemKeys = {"UP_GRADE", "UP-GRADE", "UP GRADE", "UPGRADE"},
+    consume = true,
+  },
+  {
+    sourceDex = 366,         -- Clamperl
+    targetDex = 367,         -- Huntail
+    minLevel = 1,
+    itemKeys = {"DEEP_SEA_TOOTH", "DEEP SEA TOOTH", "DEEPSEATOOTH"},
+    consume = true,
+  },
+  {
+    sourceDex = 366,         -- Clamperl
+    targetDex = 368,         -- Gorebyss
+    minLevel = 1,
+    itemKeys = {"DEEP_SEA_SCALE", "DEEP SEA SCALE", "DEEPSEASCALE"},
+    consume = true,
+  },
 }
 
--- Trade evolutions are converted to single-save evolution rules.
---
--- Most become level evolutions. A couple of branching families use an item
--- override in compat_overrides.lua so both branches are selectable without
--- repeatedly cancelling another level evolution.
-local TRADE_LEVELS = {
-  SHELMET = { ACCELGOR = 36 },
-
-  POLIWHIRL = { POLITOED = 37 },
-  KADABRA = { ALAKAZAM = 36 },
-  MACHOKE = { MACHAMP = 36 },
-  GRAVELER = { GOLEM = 36 },
-  HAUNTER = { GENGAR = 36 },
-
-  ONIX = { STEELIX = 40 },
-  SEADRA = { KINGDRA = 40 },
-  SCYTHER = { SCIZOR = 40 },
-  PORYGON = { PORYGON2 = 30 },
-
-  RHYDON = { RHYPERIOR = 50 },
-  ELECTABUZZ = { ELECTIVIRE = 42 },
-  MAGMAR = { MAGMORTAR = 42 },
-  DUSCLOPS = { DUSKNOIR = 48 },
-  PORYGON2 = { PORYGON_Z = 40 },
-
-  SPRITZEE = { AROMATISSE = 36 },
-  SWIRLIX = { SLURPUFF = 36 },
-  PHANTUMP = { TREVENANT = 36 },
-  PUMPKABOO = { GOURGEIST = 36 },
-
-  BOLDORE = { GIGALITH = 40 },
-  GURDURR = { CONKELDURR = 40 },
-  KARRABLAST = { ESCAVALIER = 36 },
-
-  -- Feebas normally also has a Beauty evolution. If the generated data picks
-  -- the trade method first, this still makes Milotic obtainable.
-  FEEBAS = { MILOTIC = 35 },
-
-  -- Clamperl has two trade-item branches. Huntail is the level branch; the
-  -- Gorebyss compatibility override uses a Water Stone so both are selectable.
-  CLAMPERL = { HUNTAIL = 36 },
-}
-
-local DEFAULT_TRADE_LEVEL = 40
-
-local function tradeLevel(sourceId, targetId)
-  local byTarget = TRADE_LEVELS[sourceId]
-  if byTarget and byTarget[targetId] then return byTarget[targetId] end
-  return DEFAULT_TRADE_LEVEL
+local function decode(read, path)
+  local source = assert(read(path), 'Missing evolution data: ' .. path)
+  return assert(load(source, '@' .. path))()
 end
 
-local function getDefaultMethod(target)
-  if type(target.methods) ~= "table" then return nil end
-  for _, method in ipairs(target.methods) do
-    if method.isDefault then return method end
+local function resolveItem(itemId, keys)
+  if type(itemId) ~= 'function' then return nil end
+  for _, key in ipairs(keys or {}) do
+    local ok, value = pcall(itemId, key)
+    value = ok and tonumber(value) or nil
+    if value and value > 0 then return value end
   end
-  return target.methods[1]
-end
-
-local function overrideFor(mod, sourceId, targetId)
-  local all = loadOverrides(mod)
-  local source = all[sourceId]
-  return type(source) == "table" and source[targetId] or nil
-end
-
-local function applyOverride(mod, sourceId, targetId, targetSpecies)
-  local rule = overrideFor(mod, sourceId, targetId)
-  if type(rule) ~= "table" then return nil end
-  local row = { species = targetSpecies }
-  if rule.method ~= nil then row.method = rule.method end
-  if rule.level ~= nil then row.level = rule.level end
-  if rule.item ~= nil then row.item = rule.item end
-  if rule.param ~= nil then row.param = rule.param end
-  return row
-end
-
-local function regionalFormId(id)
-  id = tostring(id or "")
-  return id:match("_ALOLA$") or id:match("_GALAR$")
-    or id:match("_HISUI$") or id:match("_PALDEA$")
-end
-
--- Conditions FireRed cannot represent with a stock evolution row. Time of
--- day is intentionally NOT on this list: where it is the only extra condition
--- we use the same level/friendship rule without the clock restriction.
-local function hasUnsupportedLevelCondition(method)
-  return method.knownMove ~= nil
-    or method.knownMoveType ~= nil
-    or method.location ~= nil
-    or method.needsOverworldRain ~= nil
-    or method.turnUpsideDown ~= nil
-    or method.minAffection ~= nil
-    or method.partySpecies ~= nil
-    or method.partyType ~= nil
-    or method.tradeSpecies ~= nil
-    or method.heldItem ~= nil
-    or method.gender ~= nil
-    or method.minSteps ~= nil
-    or method.minMoveCount ~= nil
-    or method.usedMove ~= nil
-end
-
-local function convertMethod(mod, sourceId, target, method, targetSpecies)
-  local override = applyOverride(mod, sourceId, target.id, targetSpecies)
-  if override then return override end
-
-  -- FireRed-native special branches whose source data is too generic to
-  -- distinguish the cartridge method.
-  if sourceId == "WURMPLE" and target.id == "SILCOON" then
-    return { method = "EVO_LEVEL_SILCOON", level = method.level or 7,
-      species = targetSpecies }
-  end
-  if sourceId == "WURMPLE" and target.id == "CASCOON" then
-    return { method = "EVO_LEVEL_CASCOON", level = method.level or 7,
-      species = targetSpecies }
-  end
-  if sourceId == "NINCADA" and target.id == "NINJASK" then
-    return { method = "EVO_LEVEL_NINJASK", level = method.level or 20,
-      species = targetSpecies }
-  end
-  if sourceId == "NINCADA" and target.id == "SHEDINJA" then
-    return { method = "EVO_LEVEL_SHEDINJA", level = 20,
-      species = targetSpecies }
-  end
-
-  -- Tyrogue's three-way Attack/Defense split is supported directly.
-  if method.trigger == "level-up" and method.relativePhysicalStats ~= nil
-      and method.level then
-    local rel = tonumber(method.relativePhysicalStats)
-    local evoMethod = rel == 1 and "EVO_LEVEL_ATK_GT_DEF"
-      or (rel == -1 and "EVO_LEVEL_ATK_LT_DEF"
-      or (rel == 0 and "EVO_LEVEL_ATK_EQ_DEF" or nil))
-    if evoMethod then
-      return { method = evoMethod, level = method.level,
-        species = targetSpecies }
-    end
-  end
-
-  -- Normal level evolution. A pure day/night restriction is dropped because
-  -- FireRed has no clock-driven level evolution.
-  if method.trigger == "level-up" and method.level
-      and not method.minHappiness and not method.minBeauty
-      and method.relativePhysicalStats == nil
-      and not hasUnsupportedLevelCondition(method) then
-    return { method = "EVO_LEVEL", level = method.level,
-      species = targetSpecies }
-  end
-
-  -- FireRed's active Gen 3 evolution scanner implements ordinary friendship,
-  -- not the day/night friendship variants, so day/night is deliberately
-  -- collapsed here.
-  if method.trigger == "level-up" and method.minHappiness
-      and not hasUnsupportedLevelCondition(method) then
-    return { method = "EVO_FRIENDSHIP", species = targetSpecies }
-  end
-
-  if method.trigger == "level-up" and method.minBeauty then
-    return { method = "EVO_BEAUTY", param = method.minBeauty,
-      species = targetSpecies }
-  end
-
-  -- No evolution in 1025Dex should require another player/save.
-  -- Normal trades, held-item trades and paired-species trades all become a
-  -- deterministic single-save level evolution unless compat_overrides.lua
-  -- supplied a different single-save rule first.
-  if method.trigger == "trade" then
-    return {
-      method = "EVO_LEVEL",
-      level = tradeLevel(sourceId, target.id),
-      species = targetSpecies,
-    }
-  end
-
-  if method.trigger == "use-item" and method.item then
-    local item = FIRE_RED_STONES[normalizeItem(method.item)]
-    -- Gender/region/etc. item branches are not safe to collapse automatically.
-    if item and method.gender == nil and method.region == nil
-        and method.timeOfDay == nil then
-      return { method = "EVO_ITEM", item = item, species = targetSpecies }
-    end
-  end
-
   return nil
 end
 
--- True when the generated evolution list contains a trade requirement.
--- Native FireRed species with one of these need their cartridge evolution
--- list replaced by the translated list; simply appending would leave the old
--- trade-only row active.
-function M.hasTradeEvolution(record)
-  if type(record) ~= "table" or type(record.evolvesInto) ~= "table" then
-    return false
+local function heldItemId(mon, itemId)
+  local raw = mon and mon.item
+  if raw == nil or tonumber(raw) == 0 then raw = mon and mon.heldItem end
+  local numeric = tonumber(raw)
+  if numeric then return numeric end
+  if raw ~= nil and type(itemId) == 'function' then
+    local ok, value = pcall(itemId, raw)
+    if ok then return tonumber(value) end
   end
-  for _, target in ipairs(record.evolvesInto) do
-    if not regionalFormId(target.id) and type(target.methods) == "table" then
-      for _, method in ipairs(target.methods) do
-        if method.trigger == "trade" then return true end
-      end
-    end
-  end
-  return false
+  return nil
 end
 
--- Build FireRed gameplay rows for one generated species record.
---
--- `slotForDex` is supplied by gen3shape.lua because FireRed's native Gen 3
--- internal species slots do not equal National Dex numbers after Celebi.
---
--- When numericTargets is false, `species` remains a string id so records going
--- through mod.content.pokemon pass schema validation and forward references.
--- gen3shape's early direct-write pass uses numericTargets=true because those
--- target names have not entered FireRed's live species table yet.
---
--- `minTargetDex`, when supplied, filters the result to targets above that
--- National Dex number. Native FireRed species use 386 here so their existing
--- Gen 1-3 evolution rows remain intact and only later branches are appended.
-function M.rows(mod, sourceId, record, slotForDex, numericTargets, minTargetDex)
-  local rows = {}
-  if type(record) ~= "table" or type(record.evolvesInto) ~= "table"
-      or type(slotForDex) ~= "function" then
-    return rows
+function M.build(read, slot, itemId, useCompat)
+  local index = decode(read, 'data/evolutions/generated/index.lua')
+  local shards, rows, conditions, counts = {}, {}, {},
+    {level=0, trade=0, item=0, fallback=0, held=0, compat=0}
+  local function record(id)
+    local shard = index[id]
+    if not shard then return end
+    if not shards[shard] then
+      shards[shard] = decode(read, ('data/evolutions/generated/%03d.lua'):format(shard))
+    end
+    return shards[shard][id]
   end
-
-  for _, target in ipairs(record.evolvesInto) do
-    local targetDex = tonumber(target.dex)
-    -- Regional-form targets are not part of 1025Dex's base-species FireRed
-    -- registration and must not replace the base target. `minTargetDex` lets
-    -- native FireRed species append only NEW post-Gen-3 branches while
-    -- leaving their cartridge evolution rows untouched.
-    if not regionalFormId(target.id)
-        and (minTargetDex == nil or (targetDex and targetDex > minTargetDex)) then
-      local targetSpecies = numericTargets
-        and slotForDex(targetDex) or target.id
-      if targetSpecies then
-        local inserted = false
-        local default = getDefaultMethod(target)
-
-        if default then
-          local row = convertMethod(
-            mod, sourceId, target, default, targetSpecies)
-          if row then
-            rows[#rows + 1] = row
-            inserted = true
+  for id in pairs(index) do
+    local source = record(id)
+    if source and not source.form and type(source.dex) == 'number' and source.dex <= 1025 then
+      local from = slot(source.dex)
+      if from then
+        local fallback = {}
+        for _, edge in ipairs(source.evolvesInto or {}) do
+          local destination = record(edge.id)
+          if destination and not destination.form and destination.dex == edge.dex then
+            local target = slot(edge.dex)
+            local chosen
+            for _, method in ipairs(edge.methods or {}) do
+              if method.isDefault then chosen = method; break end
+            end
+            chosen = chosen or (edge.methods or {})[1]
+            if target and chosen then
+              local method, param, guard
+              if chosen.trigger == 'trade' then
+                method, param = 4, 36
+                counts.trade = counts.trade + 1
+              elseif chosen.trigger == 'level-up' then
+                param = tonumber(chosen.level)
+                if param then
+                  method = 4
+                  if chosen.relativePhysicalStats then
+                    method = ({[1]=8, [0]=9, [-1]=10})[chosen.relativePhysicalStats] or 4
+                  elseif id == 'WURMPLE' then
+                    method = edge.id == 'SILCOON' and 11 or 12
+                  elseif id == 'NINCADA' and edge.id == 'NINJASK' then
+                    method = 13
+                  end
+                elseif chosen.minHappiness or chosen.knownMove or chosen.minBeauty then
+                  method, param, guard = 4, 1, chosen
+                end
+                -- A conditional level must never evolve to the wrong branch.
+                if method and (chosen.timeOfDay or chosen.gender or chosen.knownMove
+                    or chosen.partySpecies or chosen.partyType or chosen.minHappiness
+                    or chosen.minBeauty or chosen.heldItem or chosen.knownMoveType
+                    or chosen.location or chosen.minSteps or chosen.usedMove) then
+                  if chosen.heldItem or chosen.knownMoveType or chosen.location
+                      or chosen.minSteps or chosen.usedMove then
+                    method = nil -- This action is handled by the level 36 fallback below.
+                  else
+                    guard = chosen
+                  end
+                end
+                if method then counts.level = counts.level + 1 end
+              elseif chosen.trigger == 'shed' then
+                method, param = 14, 20
+                counts.level = counts.level + 1
+              elseif chosen.trigger == 'use-item' and chosen.item then
+                local key = chosen.item:upper():gsub('[^A-Z0-9]+', '_')
+                param = itemId and itemId(key)
+                if param then method = 7; counts.item = counts.item + 1 end
+              end
+              if method then
+                rows[from] = rows[from] or {}
+                rows[from][#rows[from]+1] = {method=method,param=param,target=target}
+                if guard then
+                  conditions[from] = conditions[from] or {}
+                  conditions[from][target] = guard
+                end
+              else
+                fallback[#fallback+1] = {method=4,param=36,target=target}
+              end
+            end
           end
         end
-
-        if not inserted and type(target.methods) == "table" then
-          for _, method in ipairs(target.methods) do
-            if method ~= default then
-              local row = convertMethod(
-                mod, sourceId, target, method, targetSpecies)
-              if row then
-                rows[#rows + 1] = row
-                inserted = true
-                break
-              end
+        if #fallback > 0 then
+          rows[from] = rows[from] or {}
+          -- Each level-up has one result. When two or three special evolutions
+          -- share a parent, use the ROM's attack/defense split so every
+          -- destination remains reachable at level 36.
+          local split = #fallback == 2 and {8,4}
+            or #fallback == 3 and {8,9,10}
+          for i, entry in ipairs(fallback) do
+            if split then entry.method = split[i] end
+            if i <= 3 or #fallback == 1 then
+              table.insert(rows[from], 1, entry)
+              counts.fallback = counts.fallback + 1
             end
           end
         end
       end
     end
   end
-  return rows
+
+  -- Replace only the explicitly listed trade-item branch with a normal
+  -- level row guarded by its held item. It is appended after the ordinary
+  -- branch so the engine's last-matching-row behavior gives it priority.
+  for _, spec in ipairs(LEVEL_HELD_PRIORITY) do
+    local from = slot(spec.sourceDex)
+    local target = slot(spec.targetDex)
+    local normalTarget = spec.normalTargetDex and slot(spec.normalTargetDex) or nil
+    local requiredItem = resolveItem(itemId, spec.itemKeys)
+    if from and target and requiredItem then
+      rows[from] = rows[from] or {}
+      for i = #rows[from], 1, -1 do
+        if rows[from][i].target == target then
+          table.remove(rows[from], i)
+          counts.trade = math.max(0, counts.trade - 1)
+        end
+      end
+      rows[from][#rows[from]+1] = {
+        method=4, param=spec.minLevel, target=target,
+      }
+      conditions[from] = conditions[from] or {}
+      conditions[from][target] = {
+        minLevel=spec.minLevel,
+        heldItemId=requiredItem,
+        consumeHeldItem=spec.consume == true,
+      }
+      if normalTarget then
+        local normalRule = conditions[from][normalTarget] or {}
+        normalRule.unlessHeldItemId = requiredItem
+        conditions[from][normalTarget] = normalRule
+      end
+      counts.held = counts.held + 1
+    end
+  end
+
+  -- Keep maintained FRLG compatibility choices for evolutions whose modern
+  -- trigger is unavailable in Gen 3. The new held trade-item rules above
+  -- take precedence for their targets; Emerald keeps the shipped rules.
+  local overridePath = 'data/evolutions/compat_overrides.lua'
+  local overrideSource = useCompat and read(overridePath)
+  if overrideSource then
+    local overrides = assert(load(overrideSource, '@' .. overridePath))()
+    local heldTargets = {}
+    for _, spec in ipairs(LEVEL_HELD_PRIORITY) do
+      heldTargets[spec.targetDex] = true
+    end
+    for sourceId, targets in pairs(overrides) do
+      local source = record(sourceId)
+      local from = source and slot(source.dex)
+      if from then
+        for targetId, rule in pairs(targets) do
+          local destination = record(targetId)
+          local target = destination and slot(destination.dex)
+          if target and not heldTargets[destination.dex] then
+            local method, param
+            if rule.method == 'EVO_LEVEL' then
+              method, param = 4, tonumber(rule.level)
+            elseif rule.method == 'EVO_ITEM' then
+              method, param = 7, resolveItem(itemId, {rule.item})
+            end
+            if method and param then
+              local list = rows[from] or {}
+              local replacement = {method=method, param=param, target=target}
+              local replaced = false
+              for i, entry in ipairs(list) do
+                if entry.target == target then
+                  list[i], replaced = replacement, true
+                  break
+                end
+              end
+              if not replaced then list[#list+1] = replacement end
+              rows[from] = list
+              if conditions[from] then conditions[from][target] = nil end
+              counts.compat = counts.compat + 1
+            end
+          end
+        end
+      end
+    end
+  end
+  return rows, conditions, counts
 end
 
+function M.install(mod, pokemon, slot, itemId)
+  local conditions = {}
+  local function apply()
+    if not pokemon._names or not pokemon._evolutions then return end
+    local game = require('src.core.GameVersion').get()
+    local generated, guards, counts = M.build(
+      function(path) return mod:read(path) end, slot, itemId,
+      game == 'firered' or game == 'leafgreen')
+    conditions = guards
+    for from, additions in pairs(generated) do
+      local original = pokemon._evolutions[from] or {}
+      local merged, targets = {}, {}
+      for _, entry in ipairs(additions) do
+        merged[#merged+1] = entry
+        targets[entry.target] = true
+      end
+      for _, entry in ipairs(original) do
+        if not targets[entry.target] then
+          -- FRLG's own traded species obey the same level 36 rule.
+          if entry.method == 5 or entry.method == 6 then
+            merged[#merged+1] = {method=4,param=36,target=entry.target}
+          else
+            merged[#merged+1] = entry
+          end
+        end
+      end
+      pokemon._evolutions[from] = merged
+    end
+    -- Some ROM trade rows have no default edge in the generated graph.
+    for from, original in pairs(pokemon._evolutions) do
+      if not generated[from] then
+        for _, entry in ipairs(original) do
+          if entry.method == 5 or entry.method == 6 then
+            entry.method, entry.param = 4, 36
+          end
+        end
+      end
+    end
+    mod.log:info(('Game3 evolutions: %d level, %d trade at 36, %d item; %d special evolutions at 36; %d held-item level branches; %d FRLG compatibility rules')
+      :format(counts.level, counts.trade, counts.item, counts.fallback, counts.held, counts.compat))
+  end
+  pokemon.onReload(apply, '1025dex_firered_evolutions')
+  apply()
+  if mod.hooks and mod.hooks.wrap then
+    mod.hooks:wrap('evolution.check', function(nextCheck, game, mon, view, ctx)
+      local from = pokemon.speciesOf and pokemon.speciesOf(mon)
+        or tonumber(mon and (mon.species or mon.speciesId))
+      local rules = conditions[from]
+      if rules and ctx and ctx.kind == 'levelup' then
+        -- The engine evaluates one evolution row at a time; prohibit a
+        -- conditional row unless its own requirement is satisfied.
+        local target = tonumber(view and view.speciesId)
+          or (view.evolution and tonumber(view.evolution.target))
+        local rule = target and rules[target]
+        if rule then
+          local held = heldItemId(mon, itemId)
+          if rule.minLevel and (tonumber(mon.level) or 1) < rule.minLevel then return false end
+          if rule.heldItemId and held ~= rule.heldItemId then return false end
+          if rule.unlessHeldItemId and held == rule.unlessHeldItemId then return false end
+          local friendship = pokemon.friendshipOf and pokemon.friendshipOf(mon)
+          if rule.minHappiness and (not friendship or friendship < rule.minHappiness) then return false end
+          if rule.minBeauty and (not mon.beauty or mon.beauty < rule.minBeauty) then return false end
+          if rule.gender and pokemon.gender(from, mon.personality) ~= rule.gender:upper():sub(1,1) then return false end
+          if rule.knownMove then
+            local wanted = rule.knownMove:upper():gsub('[^A-Z0-9]', '')
+            local found = false
+            for i=1,4 do
+              local move = pokemon.moveIdAt(mon,i)
+              local name = move and pokemon.moveName(move)
+              if name and name:upper():gsub('[^A-Z0-9]', '') == wanted then found=true; break end
+            end
+            if not found then return false end
+          end
+          if rule.timeOfDay then
+            local hour = game and game.world and game.world.hour and game.world:hour()
+            if not hour then hour = tonumber(os.date('%H')) end
+            if rule.timeOfDay == 'day' and (hour < 6 or hour >= 18) then return false end
+            if rule.timeOfDay == 'night' and (hour >= 6 and hour < 18) then return false end
+          end
+          if rule.partySpecies or rule.partyType then return false end
+        end
+      end
+      return nextCheck(game,mon,view,ctx)
+    end)
+  end
+  if mod.events and mod.events.on then
+    mod.events:on('pokemon.evolved', function(event)
+      if type(event) ~= 'table' or type(event.mon) ~= 'table' then return end
+      local from = tonumber(event.fromSpeciesId)
+      local target = tonumber(event.toSpeciesId)
+      local rule = from and target and conditions[from] and conditions[from][target]
+      if not (rule and rule.consumeHeldItem and rule.heldItemId) then return end
+      if heldItemId(event.mon, itemId) ~= rule.heldItemId then return end
+      event.mon.item = 0
+      event.mon.heldItem = 0
+    end)
+  end
+end
 return M

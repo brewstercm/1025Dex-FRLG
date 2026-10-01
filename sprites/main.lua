@@ -3863,6 +3863,7 @@ return function(mod)
   -- module cannot even be required on a gen1 boot (RequireGuard throws).  The
   -- generation is passed in -- it is decided later, in the boot flow below.
   local function installDex(wantGen)
+    if wantGen == 3 then return "gen3" end
     if wantGen == 2 then
       if installDexGen2() then return "gen2" end
       if installDexGen1() then return "gen1" end
@@ -3882,6 +3883,7 @@ return function(mod)
   -- One boot is one generation, so install the matching summary arm too (same
   -- RequireGuard reason as the dex above).
   local function installSummary(wantGen)
+    if wantGen == 3 then return "gen3" end
     if wantGen == 2 then
       if installSummaryGen2() then return "gen2" end
       if installSummaryGen1() then return "gen1" end
@@ -4035,6 +4037,7 @@ return function(mod)
   end
 
   local function installSummaryScreens(wantGen)
+    if wantGen == 3 then return true end
     -- The modern stats screen is a Gen 1 screen (the engine mod only installs
     -- it off a Gen 2 boot, and the native wrap already covers Gen 2), so only
     -- arm the listener there.  It also needs the events bus, which a very old
@@ -4269,6 +4272,7 @@ return function(mod)
   -- One boot is one generation, so install the matching party-icon arm only
   -- (the same RequireGuard reason as the dex and summary dispatchers above).
   local function installPartyIcons(wantGen)
+    if wantGen == 3 then return "gen3" end
     if wantGen == 2 then
       if installPartyIconsGen2() then return "gen2" end
       if installPartyIconsGen1() then return "gen1" end
@@ -4643,6 +4647,7 @@ return function(mod)
   -- RequireGuard reason as the party-icon dispatcher above).  With the option
   -- off both arms are inert: every seam they touch answers the vanilla way.
   local function installG9PartyScreen(wantGen)
+    if wantGen == 3 then return "native gen3" end
     if wantGen == 2 then
       if installG9PartyScreenGen2() then return "gen2" end
       if installG9PartyScreenGen1() then return "gen1" end

@@ -1,5 +1,5 @@
--- FireRed gameplay compatibility for post-Gen-3 evolutions whose modern
--- trigger cannot be represented by the stock FireRed evolution engine.
+-- Maintained FRLG gameplay choices for post-Gen-3 evolutions whose modern
+-- trigger cannot be represented by the Gen 3 evolution engine.
 --
 -- The Pokédex keeps displaying the real modern requirement from the generated
 -- evolution database. These rows only choose a practical FireRed gameplay
@@ -18,17 +18,6 @@ return {
     SYLVEON = { method = "EVO_ITEM", item = "SUN_STONE" },
   },
 
-
-  SLOWPOKE = {
-    -- Slowbro already evolves at level 37. Sun Stone gives Slowking a clean
-    -- selectable single-save branch instead of requiring cancelled evolutions.
-    SLOWKING = { method = "EVO_ITEM", item = "SUN_STONE" },
-  },
-
-  CLAMPERL = {
-    -- Huntail is level 36; Water Stone selects Gorebyss.
-    GOREBYSS = { method = "EVO_ITEM", item = "WATER_STONE" },
-  },
 
   TOGETIC = {
     -- Shiny Stone substitute.

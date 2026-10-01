@@ -1,5 +1,19 @@
 local Policy = {}
 
+-- Aquatic bodies cannot appear on land. Water typing alone is insufficient:
+-- Psyduck, Wooper, Mudkip, etc. remain valid shoreline/grass encounters.
+local WATER_ONLY = {}
+for _,id in ipairs({72,73,90,91,116,117,118,119,120,121,129,130,131,
+  170,171,211,222,223,224,226,230,318,319,320,321,339,340,349,350,366,367,368,369,370,
+  456,457,458,489,490,594,602,603,604,535,550,690,691,692,693,746,779,
+  846,847,902,960,961,962,963,964,977,978}) do WATER_ONLY[id]=true end
+function Policy.allows(mon, terrain)
+  if terrain=='water' or terrain=='fishing' then
+    return mon.habitat=='freshwater' or mon.habitat=='sea' or WATER_ONLY[mon.id]==true
+  end
+  return not WATER_ONLY[mon.id]
+end
+
 Policy.choices = {
   {label="GEN 1",first=1,last=151}, {label="GEN 2",first=152,last=251},
   {label="GEN 3",first=252,last=386}, {label="GEN 4",first=387,last=493},
@@ -42,7 +56,25 @@ end
 
 local function key(s)
   return tostring(s or ""):upper():gsub("UNKNOWN_DUNGEON", "CERULEAN_CAVE")
+    :gsub("^SEVII_", ""):gsub("^FR_", ""):gsub("^LG_", "")
     :gsub("[^A-Z0-9]", "")
+end
+
+local function terrainProfile(loc, terrain)
+  if not loc or not loc.hoenn then return loc end
+  local area=loc[terrain or "land"]
+  if not area then return nil end
+  local out={};for k,v in pairs(loc) do out[k]=v end
+  for k,v in pairs(area) do out[k]=v end
+  return out
+end
+local function hoennHabitat(mon,loc,terrain)
+  if loc.any then return true end
+  if terrain=="water" or terrain=="fishing" then
+    return mon.habitat==loc.habitat or (WATER_ONLY[mon.id]
+      and mon.habitat~="sea" and mon.habitat~="freshwater")
+  end
+  return mon.habitat==loc.habitat
 end
 
 function Policy.new(roster, locations, random)
@@ -62,44 +94,65 @@ function Policy.new(roster, locations, random)
     local k = key(mapId)
     local exact = self.byMap[k]
     if exact then return exact, self.locations[exact] end
-    for mapKey,i in pairs(self.byMap) do
-      if k:find(mapKey, 1, true) or mapKey:find(k, 1, true) then
-        return i, self.locations[i]
+    -- Only declared dungeon families inherit a parent, longest match first.
+    -- Never let Route 1 match Route 10/11 or an unknown map inherit Route 1.
+    local best, length
+    for i,loc in ipairs(self.locations) do
+      local parent = key(loc.map)
+      if loc.children and k:sub(1, #parent) == parent
+          and (not length or #parent > length) then
+        best, length = i, #parent
       end
     end
-    local habitat = "meadow"
-    if k:find("SEAFOAM",1,true) then habitat="ice"
-    elseif k:find("CAVE",1,true) or k:find("TUNNEL",1,true) or k:find("VICTORYROAD",1,true) then habitat="cave"
-    elseif k:find("TOWER",1,true) then habitat="ghost"
-    elseif k:find("POWERPLANT",1,true) then habitat="electric"
-    elseif k:find("MANSION",1,true) then habitat="volcanic"
-    elseif k:find("SAFARI",1,true) then habitat="safari" end
-    for i,loc in ipairs(self.locations) do
-      if not loc.special and loc.habitat == habitat then return i,loc end
-    end
-    return 1,self.locations[1]
+    if best then return best, self.locations[best] end
+    return nil, nil
   end
 
   local function inChoice(mon, choice)
     return mon.id >= choice.first and mon.id <= choice.last
   end
 
-  -- Each roster record owns exactly one map. The WILD GENS choice filters
-  -- species; it never reshuffles their homes or pads an area's pool with
-  -- Pokemon from somewhere else. Rare non-vanilla species are authored into
-  -- Safari Zone maps, while legendaries and mythicals are authored into the
-  -- endgame special maps.
+  -- Random encounters belong to ordinary species only. The source roster
+  -- carries legendary/mythical entries, but those cannot create one-off
+  -- overworld encounters and must never duplicate the ROM's static battles.
   local function homeFor(mon)
     local wanted = tonumber(mon.location)
-    local at = wanted and locations[wanted]
-    if not at then return nil end
-    return wanted
+    return wanted and locations[wanted] and wanted or nil
   end
 
-  function self:pool(mapId, choiceIndex)
-    local locIndex,loc = self:location(mapId)
+  local hoennHomes={}
+  for _,mon in ipairs(roster) do
+    if not mon.special then
+      hoennHomes[mon.id]={}
+      for _,terrain in ipairs({"land","water","fishing","rocks"}) do
+        local eligible={}
+        for i,base in ipairs(locations) do
+          if base.hoenn then
+            local loc=terrainProfile(base,terrain)
+            if loc and Policy.allows(mon,terrain) and (mon.gate or 1)<=loc.hi
+                and safeForEarlyArea(mon,loc) and hoennHabitat(mon,loc,terrain) then
+              eligible[#eligible+1]=i
+            end
+          end
+        end
+        if #eligible>0 then
+          local first=(mon.id*17+(mon.stage or 1)*7)%#eligible+1
+          hoennHomes[mon.id][terrain]={[eligible[first]]=true,
+            [eligible[(first-1+math.floor(#eligible/2))%#eligible+1]]=true}
+        end
+      end
+    end
+  end
+
+  function self:pool(mapId, choiceIndex, terrain)
+    terrain=terrain or "land"
+    local locIndex,base = self:location(mapId)
+    local loc=terrainProfile(base,terrain)
     local choice,normalized = self:choice(choiceIndex)
-    local cacheKey = locIndex .. ":" .. normalized
+    if not loc then
+      return {common={},rare={},featured={},choice=choice},nil
+    end
+    local cacheKey = locIndex .. ":" .. normalized .. ":" .. terrain
     if self.pools[cacheKey] then return self.pools[cacheKey],loc end
     local common,rare,featured,seen = {},{},{},{}
     local function add(list,mon)
@@ -107,18 +160,48 @@ function Policy.new(roster, locations, random)
       seen[mon.id]=true; list[#list+1]=mon; return true
     end
     for _,mon in ipairs(self.roster) do
-      if inChoice(mon, choice) and (tonumber(mon.gate) or 1) <= (tonumber(loc.hi) or 100) then
-        if mon.special then
-          -- Legendary and mythical Pokemon only exist at their assigned
-          -- Victory Road, Seafoam, or Cerulean Cave endgame location.
-          if loc.special and homeFor(mon) == locIndex then add(rare,mon) end
-        elseif homeFor(mon) == locIndex and safeForEarlyArea(mon, loc) then
+      if Policy.allows(mon, terrain) and inChoice(mon, choice) and (tonumber(mon.gate) or 1) <= (tonumber(loc.hi) or 100) then
+        local belongs = homeFor(mon) == locIndex
+        if loc.hoenn then
+          local homes=hoennHomes[mon.id] and hoennHomes[mon.id][terrain]
+          belongs=(loc.native and loc.native[mon.id]) or (homes and homes[locIndex])
+        elseif loc.sevii then
+          -- Additional island homes leave the original Kanto distribution intact.
+          -- Aquatic pools are separate even on forest/volcano/cave maps.
+          if terrain == "water" or terrain == "fishing" then
+            belongs = true -- Policy.allows above already selected aquatic species.
+          else
+            belongs = mon.habitat == loc.habitat
+          end
+        end
+        if not mon.special and belongs
+            and safeForEarlyArea(mon, loc) then
           add(isRare(mon) and rare or common, mon)
         end
       end
     end
 
-    if key(loc.map) == "FRROUTE1" then
+    if loc.hoenn and #common==0 and #rare==0 then
+      -- A restricted generation still gets a legal ordinary pool on every
+      -- native encounter terrain. Prefer that terrain's habitat first.
+      for pass=1,2 do
+        for _,mon in ipairs(self.roster) do
+          if not mon.special and Policy.allows(mon,terrain) and inChoice(mon,choice)
+              and (mon.gate or 1)<=loc.hi and safeForEarlyArea(mon,loc)
+              and (pass==2 or hoennHabitat(mon,loc,terrain)) then
+            add(isRare(mon) and rare or common,mon)
+          end
+        end
+        if #common+#rare>0 then break end
+      end
+    end
+    if loc.hoenn and terrain=="land" and loc.featured then
+      for _,id in ipairs(loc.featured) do
+        local mon=self.roster[id]
+        if mon and inChoice(mon,choice) then featured[#featured+1]=mon end
+      end
+    end
+    if terrain=="land" and key(loc.map) == "ROUTE1" then
       for _, id in ipairs(ROUTE_1_FEATURED) do
         local mon = self.roster[id]
         if mon then featured[#featured+1] = mon end
@@ -130,8 +213,27 @@ function Policy.new(roster, locations, random)
     return result,loc
   end
 
-  function self:choose(mapId, choiceIndex, nativeLevel)
-    local pool,loc = self:pool(mapId, choiceIndex)
+  function self:choose(mapId, choiceIndex, nativeLevel, terrain)
+    local pool,loc = self:pool(mapId, choiceIndex, terrain)
+    if not loc then return nil end
+    if loc.hoenn and (terrain=="fishing" or terrain=="rocks") then
+      local ceiling=math.max(loc.lo,tonumber(nativeLevel) or loc.lo)
+      local filtered={common={},rare={},featured={},choice=pool.choice}
+      for _,kind in ipairs({"common","rare","featured"}) do
+        for _,mon in ipairs(pool[kind]) do
+          if (mon.gate or 1)<=ceiling then filtered[kind][#filtered[kind]+1]=mon end
+        end
+      end
+      if #filtered.common+#filtered.rare+#filtered.featured==0 then
+        for _,mon in ipairs(self.roster) do
+          if not mon.special and Policy.allows(mon,terrain) and inChoice(mon,pool.choice)
+              and (mon.gate or 1)<=ceiling and safeForEarlyArea(mon,loc) then
+            filtered.common[#filtered.common+1]=mon
+          end
+        end
+      end
+      pool=filtered
+    end
     local list
     if #pool.featured > 0 and self.random(ROUTE_1_FEATURED_CHANCE) == 1 then
       list=pool.featured

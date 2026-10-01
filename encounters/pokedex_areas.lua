@@ -1,4 +1,4 @@
--- Dynamic FireRed Pokédex Area integration for 1025Dex encounters.
+-- Dynamic FRLG Pokédex Area integration for 1025Dex encounters.
 --
 -- The encounter component replaces the native wild foe at battle start rather
 -- than rewriting FireRed's encounter tables. The stock Pokédex therefore has
@@ -54,18 +54,16 @@ local function addPool(byNational, area, pool)
   end
 end
 
-local function addNativeEncounterSpecies(byNational, area, record, Pokemon)
+local function addNativeEncounterSpecies(byNational, area, record, Pokemon, terrain)
   if type(record) ~= "table" then return end
 
-  -- `grass` is accepted by the Gen 3 registry as an alias while imported
-  -- FireRed data normally uses `land`.
-  for _, key in ipairs({ "land", "grass", "water", "rocks", "fishing" }) do
-    local encounter = record[key]
-    if type(encounter) == "table" and type(encounter.slots) == "table" then
-      for _, slot in ipairs(encounter.slots) do
-        if type(slot) == "table" then
-          addArea(byNational, nationalFor(Pokemon, slot.species), area)
-        end
+  -- `grass` is accepted by the Gen 3 registry as an alias for `land`.
+  local encounter = record[terrain]
+    or (terrain == "land" and record.grass)
+  if type(encounter) == "table" and type(encounter.slots) == "table" then
+    for _, slot in ipairs(encounter.slots) do
+      if type(slot) == "table" then
+        addArea(byNational, nationalFor(Pokemon, slot.species), area)
       end
     end
   end
@@ -149,22 +147,20 @@ function M.install(mod, policy, readSelection)
     for _, row in ipairs(maps) do
       local area = dexAreaForMap(row.id)
       if area then
-        local pool = policy:pool(row.id, choiceIndex)
+        for _, terrain in ipairs({ "land", "water", "rocks", "fishing" }) do
+          local native = type(row.record) == "table" and
+            (row.record[terrain] or (terrain == "land" and row.record.grass))
+          if native then
+            local pool = policy:pool(row.id, choiceIndex, terrain)
+            addPool(byNational, area, pool)
 
-        if type(pool) == "table" then
-          addPool(byNational, area, pool)
-
-          -- Bridge.start falls back to the untouched FireRed foe only when
-          -- both of these replacement lists are empty. Route 1 can still have
-          -- featured encounters in that state, so both featured AND native
-          -- species are legitimately possible there.
-          if #(pool.common or {}) == 0 and #(pool.rare or {}) == 0 then
-            addNativeEncounterSpecies(byNational, area, row.record, Pokemon)
+            -- When the selected generation has no replacement, the native
+            -- encounter remains available on this terrain.
+            if #(pool.common or {}) == 0 and #(pool.rare or {}) == 0 then
+              addNativeEncounterSpecies(byNational, area, row.record,
+                Pokemon, terrain)
+            end
           end
-        else
-          -- Defensive fallback: if the policy cannot describe a map, FireRed's
-          -- original encounter remains the real encounter.
-          addNativeEncounterSpecies(byNational, area, row.record, Pokemon)
         end
 
         mapped = mapped + 1

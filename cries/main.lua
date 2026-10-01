@@ -57,5 +57,5 @@ return function(mod)
   Audio.__completeDexCryResolver = playPackedCry
   mod.exports.cryCount = 1025
   mod.exports.cryNational = function(species) return Pokemon.national(tonumber(species)) end
-  mod.log:info('FireRed Complete Dex cries ready: 1-1025 exact National mapping')
+  mod.log:info('Game3 Complete Dex cries ready: 1-1025 exact National mapping')
 end

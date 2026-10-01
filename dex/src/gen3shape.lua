@@ -1,25 +1,8 @@
--- FireRed shape adapter. National Dex carries Gen 1/2-friendly source data;
--- FireRed's registry expects split Special stats and numbered species slots.
+-- Game3 shape adapter. National Dex carries Gen 1/2-friendly source data;
+-- Game3's registry expects split Special stats and numbered species slots.
 -- ROM species IDs are NOT National Dex IDs. Preserve native Gen 1-3 slots,
 -- including FRLG's unused/Unown slots, and allocate additions above them.
 local M = { ROM_DEX_MAX = 386 }
-
--- Loaded during install() through mod:read(); mod-local files are not on
--- package.path. Keeping this state on the shape module also lets the later
--- nationaldex.lua registration calls reuse the same translated evolution data.
-M._evolutionCompat = nil
-M._evolutionData = nil
-M._evolutionMod = nil
-
-local function gameplayEvolutions(source, numericTargets, minTargetDex)
-  if not source or source.form or not M._evolutionCompat
-      or not M._evolutionData or not M._evolutionMod then
-    return {}
-  end
-  return M._evolutionCompat.rows(
-    M._evolutionMod, source.id, M._evolutionData[source.id],
-    M.slot, numericTargets, minTargetDex)
-end
 
 function M.slot(dex)
   if dex > 386 then return dex + 64 end
@@ -41,29 +24,10 @@ function M.romOwned(record)
 end
 
 function M.romPatch(record)
-  local patch = { types = record.types }
-  local generated = M._evolutionData and M._evolutionData[record.id]
-
-  -- A native FireRed species with a trade evolution must have its full
-  -- evolution list translated/replaced; otherwise the cartridge's old
-  -- trade-only row would still remain active. Species without trade
-  -- evolutions keep the safer append-only behavior for post-Gen-3 branches.
-  if generated and M._evolutionCompat
-      and M._evolutionCompat.hasTradeEvolution
-      and M._evolutionCompat.hasTradeEvolution(generated) then
-    local full = gameplayEvolutions(record, false, nil)
-    if #full > 0 then patch.evolutions = full end
-  else
-    local later = gameplayEvolutions(record, false, M.ROM_DEX_MAX)
-    if #later > 0 then
-      patch.evolutions = { __append = later }
-    end
-  end
-
-  return patch
+  return { types = record.types }
 end
 
-function M.record(source, machines, numericEvolutionTargets)
+function M.record(source, machines)
   local entry = source.dexEntry or {}
   local h = tonumber(entry.heightM) or 0
   local w = tonumber(entry.weightKg) or 0
@@ -77,8 +41,7 @@ function M.record(source, machines, numericEvolutionTargets)
       specialDefense = source.spDefense or stats.special or 1 },
     catchRate = source.catchRate or 0, baseExp = source.baseExp or 0,
     growthRate = source.growthRate or "MEDIUM_FAST",
-    learnset = source.learnset or {}, tmhm = machines or {},
-    evolutions = gameplayEvolutions(source, numericEvolutionTargets),
+    learnset = source.learnset or {}, tmhm = machines or {}, evolutions = {},
     dexEntry = { kind = entry.kind or "", height = math.floor(h * 10 + .5),
       weight = math.floor(w * 10 + .5) },
     -- .rgba references leave the base art path to the animated-sprite mod.
@@ -93,70 +56,20 @@ function M.install(mod, national)
   local Schemas = require('src.mods.Schemas')
   local Dex = require('src.core.game3.dex')
   local PokedexData = require('src.core.game3.pokedex_data')
+  if not P._moveNames and P.moveName then P.moveName(1) end
+  local Starts = assert(load(assert(mod:read('src/gen3starts.lua'))))()
+  local repaired, substitutions = Starts.repair(national,
+    function(path) return mod:read(path) end, P._moveNames)
+  mod.log:info(('Game3 learnsets rebuilt: %d species, %d Gen 3 substitutions')
+    :format(repaired or 0, substitutions or 0))
   local machineSource = mod:read('data/species/generated/firered_machines.lua')
   local machineChunk = machineSource and load(machineSource, 'firered_machines')
   local machineCompat = machineChunk and machineChunk() or {}
 
-  -- Gameplay evolution compatibility is optional so a missing/partial helper
-  -- never prevents the rest of the National Dex from loading.
-  local evoSource = mod:read('src/gen3evolutions.lua')
-  if evoSource then
-    local evoChunk, evoCompileErr =
-      load(evoSource, '@' .. mod.path .. '/src/gen3evolutions.lua')
-    if evoChunk then
-      local ok, compat = pcall(evoChunk)
-      if ok and type(compat) == 'table' and type(compat.load) == 'function'
-          and type(compat.rows) == 'function' then
-        M._evolutionCompat = compat
-        M._evolutionMod = mod
-        local okData, data = pcall(compat.load, mod)
-        if okData and type(data) == 'table' then
-          M._evolutionData = data
-        else
-          mod.log:warn('FireRed gameplay evolution data failed to load (%s)',
-            tostring(data))
-        end
-      else
-        mod.log:warn('src/gen3evolutions.lua failed while loading (%s)',
-          tostring(compat))
-      end
-    else
-      mod.log:warn('src/gen3evolutions.lua failed to compile (%s)',
-        tostring(evoCompileErr))
-    end
-  end
-
-  -- Kanto #1-151 live in national.patch rather than national.register, so
-  -- nationaldex.lua never calls romPatch() for them. Enrich those existing
-  -- patches in memory with the same append-only post-Gen-3 evolution rows.
-  -- This is what makes Primeape -> Annihilape, Eevee's later branches, etc.
-  -- reach the normal mod registry without touching FireRed's original rows.
-  if M._evolutionCompat and M._evolutionData and type(national.patch) == 'table' then
-    for id, partial in pairs(national.patch) do
-      local generated = M._evolutionData[id]
-      if generated then
-        if M._evolutionCompat.hasTradeEvolution
-            and M._evolutionCompat.hasTradeEvolution(generated) then
-          -- Replace the full native list so FireRed's original trade-only row
-          -- disappears and the single-save level/item rule takes its place.
-          local full = M._evolutionCompat.rows(
-            mod, id, generated, M.slot, false, nil)
-          if #full > 0 then partial.evolutions = full end
-        else
-          local later = M._evolutionCompat.rows(
-            mod, id, generated, M.slot, false, M.ROM_DEX_MAX)
-          if #later > 0 then
-            partial.evolutions = { __append = later }
-          end
-        end
-      end
-    end
-  end
-
   -- Gen 3's internal species slots diverge from National Dex numbers after
   -- Celebi. A caught Bidoof is slot 463, while National #463 is Lickilicky.
   -- Opaque party mons always carry an internal slot, so never reinterpret a
-  -- slot that is registered in the active FireRed pack.
+  -- slot that is registered in the active Game3 pack.
   if not P.__completeDexInternalIds then
     P.__completeDexInternalIds = true
     local originalSpeciesOf = P.speciesOf
@@ -212,7 +125,7 @@ function M.install(mod, national)
   local records, ops = {}, {}
   for id, source in pairs(national.register or {}) do
     if not source.form and source.dex > 386 and source.dex <= 1025 then
-      local row = M.record(source, machineCompat[id], true)
+      local row = M.record(source, machineCompat[id])
       row.name = source.name:upper()
       records[id], ops[id] = row, true
     end
@@ -220,6 +133,15 @@ function M.install(mod, national)
   local registry = {ops=ops, get=function(_,id) return records[id] end}
   local function apply()
     if not P._names then return end -- Wait for the actual ROM pack.
+    -- Schemas.lua (0.3.18) caches the species-name index.  When gen3Write
+    -- allocates a previously unseen slot, it accidentally caches the ID
+    -- string in place of the numeric slot.  The loader's later merge then
+    -- feeds that string to vanillaSprite's %d path and aborts the whole mod
+    -- load.  Give it a fresh, complete names table before its first write.
+    local names = {}
+    for slot, name in pairs(P._names) do names[slot] = name end
+    for _, row in pairs(records) do names[row.index] = row.name end
+    P._names = names
     Schemas.REGISTRIES.pokemon.gen3Write(P, registry)
     P._byName = P._byName or {}
     P._national = P._national or {}
@@ -236,10 +158,13 @@ function M.install(mod, national)
       P._national.toNational[slot] = row.dex
       count = count + 1
     end
-    mod.log:info('FireRed extended species restored: ' .. count)
+    mod.log:info('Game3 extended species restored: ' .. count)
   end
   P.onReload(apply, 'national_dex_firered')
   apply()
+  local Evolutions = assert(load(assert(mod:read('src/gen3evolutions.lua')), '@gen3evolutions.lua'))()
+  local ItemsData = require('src.core.game3.items_data')
+  Evolutions.install(mod, P, M.slot, function(key) return ItemsData.toNumericId(key) end)
 end
 
 return M

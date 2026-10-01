@@ -67,7 +67,7 @@ end
 -- Registers every row in `entries`, teaches the eligible species, and sells
 -- the lot at Celadon Mart 4F. Returns { registered, taught } -- counts a
 -- caller can log, never raises.
-function M.install(mod, entries, widen)
+function M.install(mod, entries, widen, generation)
   if not widen then return { registered = 0, taught = 0 } end
   if type(entries) ~= "table" then return { registered = 0, taught = 0 } end
 
@@ -128,7 +128,7 @@ function M.install(mod, entries, widen)
   -- dev/battle_forms_mod/src/shop.lua's own shelf() rests on the identical
   -- fact). Only when there is at least one item to sell: an empty mart patch
   -- would still be a harmless no-op, but there is nothing to say with it.
-  if #itemIds > 0 and mod.content.text_pointers then
+  if generation ~= 3 and #itemIds > 0 and mod.content.text_pointers then
     mod.content.text_pointers:patch(M.MART_MAP,
       { [M.MART_CLERK] = { mart = itemIds } })
   end

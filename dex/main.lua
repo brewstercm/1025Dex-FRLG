@@ -165,7 +165,7 @@ return function(mod)
   -- guards against double-registering whatever `chart` above already claimed.
   local typeStubs = loadOptionalSibling(mod,
     "data/species/generated/type_chart_gen1.lua")
-  if typeStubs and type(typeStubs.types) == "table" then
+  if generation ~= 3 and typeStubs and type(typeStubs.types) == "table" then
     for id, record in pairs(typeStubs.types) do
       if mod.content.type_chart:get(id) == nil then
         local ok, err = pcall(function()
@@ -193,7 +193,7 @@ return function(mod)
   local widenMoves = mod.options:get("moves") == "all"
   local movePayload = loadOptionalSibling(mod,
     "data/moves/generated/registry_gen" .. (generation == 2 and 2 or 1) .. ".lua")
-  if movePayload then
+  if movePayload and generation ~= 3 then
     -- Per-move FLAGS (contact, sound, punch, ...), merged onto the records
     -- the registry above already carries.  A SEPARATE payload with a separate
     -- owner: PokeAPI carries no move flags at all, so tools/build_move_flags.py
@@ -268,7 +268,7 @@ return function(mod)
   if machineTeach then
     local Machinemoves = loadSibling(mod, "src/machinemoves.lua")
     if Machinemoves then
-      Machinemoves(mod, machineTeach, widenMoves)
+      Machinemoves(mod, machineTeach, widenMoves, generation)
     end
   end
 

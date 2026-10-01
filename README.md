@@ -10,6 +10,9 @@ Original mod: https://github.com/sanjinpepic/gen1recomp-national-dex
 **Pokémon sprite credits: Gen9 Resource Pack and its contributing artists.**
 See [CREDITS.md](CREDITS.md) for attribution and included source/license notices.
 
+Browse the [complete Emerald wild encounter location list](docs/emerald-gen1-9-locations.md)
+for all 1,025 Pokémon with WILD GENS set to GEN 1–9.
+
 ## 1.2.0 — Emerald port
 
 Requires gen1recomp **0.3.36 or newer in 0.3.x**. Install alongside

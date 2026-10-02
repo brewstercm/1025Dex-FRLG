@@ -945,6 +945,14 @@ return function(mod)
 
   local function isShiny(mon)
     if type(mon) ~= "table" then return false end
+    if GEN == 3 then
+      local ok, P = pcall(require, "src.core.game3.pokemon")
+      if ok and P and type(P.isShiny) == "function" then
+        local success, shiny = pcall(P.isShiny, mon)
+        if success then return not not shiny end
+      end
+      if mon.isShiny ~= nil then return not not mon.isShiny end
+    end
     if mon.shiny ~= nil then return mon.shiny and true or false end
     if type(mon.dvs) == "table" then return shinyFromDvs(mon.dvs) end
     return false
@@ -1633,6 +1641,9 @@ return function(mod)
   -- Weak keys: an evicted sheet's frame Images must be collectable even though
   -- every frame we mark was registered here.
   local ourFrames = setmetatable({}, { __mode = "k" })
+  -- Stable across every frame: the union bounds are known before baking.
+  -- Battle placement reads this metadata; menus still receive the same art.
+  local gen3BattleLiftByImage = setmetatable({}, { __mode = "k" })
 
   local function sheetKey(back, shiny, stem, box, divisor, zoom, maxH, fill, scale, natural, tera, cloud, shadow, front, flip)
     local tag = box and ("@" .. box.w .. "x" .. box.h) or ""
@@ -2020,6 +2031,10 @@ return function(mod)
     if ox < 0 then ox = 0 elseif ox > box.w - dw then ox = box.w - dw end
     if oy < 0 then oy = 0 elseif oy > box.h - dh then oy = box.h - dh end
     b.ox, b.oy = ox, oy
+    -- Retain the existing 14px battle lift only while there is transparent
+    -- headroom inside the 64px picture. Tall art gets a smaller lift.
+    -- b.oy comes from the entire animation's union bounds, not one frame.
+    b.gen3BattleLift = GEN == 3 and math.min(14, math.max(0, oy)) or nil
     b.cloudH = cloudH
     b.cloudSink = cloudSinkH
     b.phase = "frames"
@@ -2863,6 +2878,12 @@ return function(mod)
     img:setFilter("nearest", "nearest")
     sheet.frames = sheet.frames or {}
     sheet.frames[f + 1] = img
+    if GEN == 3 then
+      sheet.gen3FrameData = sheet.gen3FrameData or {}
+      sheet.gen3FrameData[f + 1] = out
+      sheet.gen3BattleLift = b.gen3BattleLift
+    end
+    if b.gen3BattleLift ~= nil then gen3BattleLiftByImage[img] = b.gen3BattleLift end
     -- FireRed's starter-choice panel keeps the `Image` it receives instead of
     -- asking Pokemon.frontPic again on every draw.  A pending sheet therefore
     -- needs a tiny mutable stand-in: copy this newly baked frame into every
@@ -2908,6 +2929,7 @@ return function(mod)
           end
           proxy.data = proxy.data or {}
           proxy.data[f + 1] = proxyFrame
+          if proxy.pic then proxy.pic.__completeDexBattleLift = b.gen3BattleLift end
           pcall(proxy.image.replacePixels, proxy.image, proxyFrame)
           proxy.lastFrame = f + 1
         end
@@ -3001,6 +3023,7 @@ return function(mod)
     end
     if victim then
       victim.frames = nil
+      victim.gen3FrameData = nil
       victim.status = "new"
       readyCount = readyCount - 1
     end
@@ -3054,16 +3077,15 @@ return function(mod)
 
     stepBuilds()
     -- Keep the few mutable FireRed preview Images current after the menu has
-    -- cached them.  They exist only for a sheet first requested while pending
-    -- (not for ordinary battle draws), so this stays a very small amount of
-    -- work even on mobile.
+    -- cached them. Gen3 battle/menu providers share one per sheet, so cached
+    -- and freshly requested pictures both advance without palette changes.
     for _, sheet in pairs(sheets) do
       if type(sheet.proxies) == "table" then
         for _, proxy in pairs(sheet.proxies) do
           local data = type(proxy) == "table" and proxy.data
           if proxy and proxy.image and proxy.image.replacePixels
             and type(data) == "table" and #data > 0 then
-            local i = math.floor(now() * fpsValue()) % #data + 1
+            local i = animateOn() and (math.floor(now() * fpsValue()) % #data + 1) or 1
             if data[i] and proxy.lastFrame ~= i then
               pcall(proxy.image.replacePixels, proxy.image, data[i])
               proxy.lastFrame = i
@@ -3303,7 +3325,10 @@ return function(mod)
     local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
     if not (ok and type(Pokemon) == "table"
       and type(Pokemon.frontPic) == "function") then return false end
-    if Pokemon.__g9BattleSprites then return true end
+    if Pokemon.__g9BattleSprites then
+      if Pokemon.__completeDexEnsurePics then Pokemon.__completeDexEnsurePics() end
+      return true
+    end
     Pokemon.__g9BattleSprites = true
     GEN = 3
 
@@ -3379,8 +3404,8 @@ return function(mod)
     -- The starter selector caches it once, and pollAll replaces its pixels as
     -- each frame becomes available (see buildOneFrame).  The image starts
     -- transparent only for the few build ticks before frame one is ready.
-    local function pendingPic(back, stem)
-      local key = sheetKey(back, false, stem,
+    local function pendingPic(back, shiny, stem)
+      local key = sheetKey(back, shiny, stem,
         back and BACK_BOX_GEN3 or FRONT_BOX_GEN3, nil, nil, GEN3_MAX_ART_H)
       local sheet = sheets[key]
       if not sheet then return nil end
@@ -3393,9 +3418,14 @@ return function(mod)
       local okImage, image = pcall(love.graphics.newImage, data)
       if not (okImage and image) then return nil end
       if image.setFilter then pcall(image.setFilter, image, "nearest", "nearest") end
-      local proxy = { image = image, data = {}, lastFrame = nil, center = true }
+      local proxy = { image = image, data = sheet.gen3FrameData or {}, lastFrame = nil, center = false }
       proxy.pic = { image = image, w = 64, h = 64 }
       sheet.proxies.gen3 = proxy
+      local i = frameIndex(#proxy.data)
+      if proxy.data[i] and image.replacePixels then
+        image:replacePixels(proxy.data[i]); proxy.lastFrame = i
+      end
+      proxy.pic.__completeDexBattleLift = sheet.gen3BattleLift
       return proxy.pic
     end
 
@@ -3407,47 +3437,104 @@ return function(mod)
       return type(species) == "number" and species >= 451
     end
 
-    local function replacement(species, back)
+    local function replacement(species, back, shiny)
       if not wantEnabled() then return nil, false, false end
       local okC, Compat = pcall(require, "src.mods.Gen3Compat")
       local name = okC and Compat and Compat.speciesName
         and Compat.speciesName(species) or nil
       local stem = resolveStem(name)
       if not stem then return nil, false, false end
-      local frames, pending = getFramesFor(back, false, stem, nil, false,
+      local frames, pending = getFramesFor(back, shiny, stem, nil, false,
         back and BACK_BOX_GEN3 or FRONT_BOX_GEN3, nil, nil, GEN3_MAX_ART_H)
       if not frames then
         -- The starter chooser caches this provider result.  Hand it a mutable
         -- placeholder while the animation bakes, rather than the shared blank
         -- image, so it can turn into frame one and keep animating in-place.
         if pending then
-          local pic = pendingPic(back, stem)
+          local pic = pendingPic(back, shiny, stem)
           if pic then return pic, false, true end
         end
         return nil, pending, true
       end
+      -- Screens may cache either the entry or its Image. Keep one animated
+      -- Image per palette/side rather than a snapshot of the current frame.
+      local proxy = pendingPic(back, shiny, stem)
+      if proxy then return proxy, false, true end
       local image = frames[frameIndex(#frames)]
-      return image and { image = image, w = 64, h = 64 } or nil, false, true
+      return image and { image = image, w = 64, h = 64,
+        __completeDexBattleLift = gen3BattleLiftByImage[image] } or nil, false, true
     end
 
     local vanillaFront, vanillaBack = Pokemon.frontPic, Pokemon.backPic
-    Pokemon.frontPic = function(species, form)
-      local pic, pending, managed = replacement(species, false)
+    local ownedFront, ownedBack
+    local firstFront, firstBack = vanillaFront, vanillaBack
+    local fallingFront, fallingBack = false, false
+    local function nativeFront(...)
+      if fallingFront then return firstFront(...) end
+      fallingFront = true
+      local ok, result = pcall(vanillaFront, ...)
+      fallingFront = false
+      if not ok then error(result, 0) end
+      return result
+    end
+    local function nativeBack(...)
+      if fallingBack then return firstBack(...) end
+      fallingBack = true
+      local ok, result = pcall(vanillaBack, ...)
+      fallingBack = false
+      if not ok then error(result, 0) end
+      return result
+    end
+    ownedFront = function(species, form, shiny, personality)
+      local pic, pending, managed = replacement(species, false, shiny)
       if pic then return pic end
       if managed and (pending or extendedSpecies(species)) then
-        return transparentPic() or vanillaFront(species, form)
+        return transparentPic() or nativeFront(species, form, shiny, personality)
       end
-      return vanillaFront(species, form)
+      return nativeFront(species, form, shiny, personality)
     end
-    Pokemon.frontSprite = Pokemon.frontPic
+    Pokemon.frontPic = ownedFront
+    Pokemon.frontSprite = ownedFront
     if type(vanillaBack) == "function" then
-      Pokemon.backPic = function(species, form)
-        local pic, pending, managed = replacement(species, true)
+      ownedBack = function(species, form, shiny)
+        local pic, pending, managed = replacement(species, true, shiny)
         if pic then return pic end
         if managed and (pending or extendedSpecies(species)) then
-          return transparentPic() or vanillaBack(species, form)
+          return transparentPic() or nativeBack(species, form, shiny)
         end
-        return vanillaBack(species, form)
+        return nativeBack(species, form, shiny)
+      end
+    end
+    Pokemon.backPic = ownedBack or vanillaBack
+    -- Gen3Compat applies content after mod startup and can put its cached,
+    -- normal PNG provider outside ours. Reclaim only these managed providers
+    -- after startup/reload; preserve the late provider for unmanaged species.
+    Pokemon.__completeDexEnsurePics = function()
+      if Pokemon.frontPic ~= ownedFront then
+        vanillaFront = Pokemon.frontPic
+        Pokemon.frontPic = ownedFront
+        Pokemon.frontSprite = ownedFront
+      end
+      if ownedBack and Pokemon.backPic ~= ownedBack then
+        vanillaBack = Pokemon.backPic
+        Pokemon.backPic = ownedBack
+      end
+    end
+    -- Emerald's native mon-animation controller may request a specific ROM
+    -- frame after frontPic. Keep our clock-driven animated sheet in that seam
+    -- too, so a native shiny/static frame cannot overwrite the replacement.
+    local okAnim, MonAnim = pcall(require, "src.core.game3.mon_anim")
+    if okAnim and MonAnim and type(MonAnim.framePic) == "function"
+        and not MonAnim.__completeDexAnimatedPics then
+      MonAnim.__completeDexAnimatedPics = true
+      local nativeFramePic = MonAnim.framePic
+      MonAnim.framePic = function(species, frame, shiny, ...)
+        if (tonumber(frame) or 0) ~= 0 then
+          local pic, pending, managed = replacement(species, false, shiny)
+          if pic then return pic end
+          if managed and (pending or extendedSpecies(species)) then return transparentPic() end
+        end
+        return nativeFramePic(species, frame, shiny, ...)
       end
     end
     return true
@@ -4847,8 +4934,11 @@ return function(mod)
       g9AtlasWarmed = true
       pcall(ensureG9Atlas)
     end
+    if gen == 3 then installGen3() end
     pollAll()
-    return next(game, dt)
+    local result = next(game, dt)
+    if gen == 3 then installGen3() end
+    return result
   end)
 
   -- ---------------------------------------------------------------------------

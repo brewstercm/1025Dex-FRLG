@@ -1,10 +1,10 @@
-# 1025Dex v1.2.0: Emerald wild locations for all 1,025 Pokémon
+# 1025Dex v1.2.5: Emerald ordinary wild locations for all 1,025 Pokémon
 
-Calculated from this maintained checkout with the default WILD GENS setting, GEN 1–9. The locations are potential random encounter pools for land, Surf, fishing, and Rock Smash. A star (★) marks the featured pool; a dagger (†) marks the rare pool. Level ranges are the policy envelope, with each Pokémon’s minimum level gate applied. Native fishing and Rock Smash roll levels may further restrict encounters.
+Calculated from the original 1.2.0 ordinary encounter pools with the default WILD GENS setting, GEN 1–9. The locations are potential random encounter pools for land, Surf, fishing, and Rock Smash. The 1.2.1–1.2.5 postgame special pools are listed separately in [POSTGAME-SPAWNS.txt](../POSTGAME-SPAWNS.txt). A star (★) marks the featured pool; a dagger (†) marks the rare pool. Level ranges are the policy envelope, with each Pokémon’s minimum level gate applied. Native fishing and Rock Smash roll levels may further restrict encounters.
 
-No listed wild encounter means this mod does not assign that Pokémon to a random Emerald encounter pool. It may still be obtained by evolution, a scripted or static encounter, or another game mechanic. Those acquisition methods are outside this report. Map access and game progress still apply. Entries marked unused internal map are declared by the mod but may not be reachable in ordinary play.
+No listed ordinary wild encounter means this table does not assign that Pokémon to an ordinary Emerald pool. The 94 special species have separate League-gated homes in the postgame spawn list. Pokémon may also be obtained by evolution, scripted or static encounters, event gifts, or other game mechanics. Those methods are outside this table. Map access and game progress still apply. Entries marked unused internal map are declared by the mod but may not be reachable in ordinary play.
 
-Summary: 931 species have a listed wild pool; 94 have none (94 are flagged special in the roster). 0 are featured-only.
+Summary for ordinary pools: 931 species have a listed ordinary wild pool; 94 are flagged special and use separate postgame pools. 0 are featured-only.
 
 ## Generation 1
 

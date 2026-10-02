@@ -1,4 +1,4 @@
-# 1025Dex 1.2.0
+# 1025Dex 1.2.5
 
 Adds the full 1,025-species National Dex to FireRed, LeafGreen and Emerald, animated Pokémon
 sprites, generation-selectable wild encounters, Kanto, Sevii and Hoenn encounter pools and
@@ -10,8 +10,50 @@ Original mod: https://github.com/sanjinpepic/gen1recomp-national-dex
 **Pokémon sprite credits: Gen9 Resource Pack and its contributing artists.**
 See [CREDITS.md](CREDITS.md) for attribution and included source/license notices.
 
-Browse the [complete Emerald wild encounter location list](docs/emerald-gen1-9-locations.md)
-for all 1,025 Pokémon with WILD GENS set to GEN 1–9.
+Browse the [Emerald ordinary wild encounter list](docs/emerald-gen1-9-locations.md)
+and [postgame special spawn list](POSTGAME-SPAWNS.txt). The ordinary list uses
+WILD GENS set to GEN 1–9.
+
+## 1.2.5 — Shiny rendering fix
+
+The Gen 3 sprite provider remains active after startup and reload, including
+when a screen caches an image. It recognizes native shiny data and keeps
+separate animated images for normal and shiny front and back art. The battle
+height correction from 1.2.3 is retained. See [CHANGELOG-1.2.5.txt](CHANGELOG-1.2.5.txt).
+
+This maintained checkout adds an **EVENTS** archive in the field menu with
+one-time, fateful gifts of Mew, Celebi, Jirachi, Deoxys, Lugia, Ho-Oh, Latias
+and Latios. Celebi and Jirachi use their AGETO and WISHMKR event identities.
+The archive also awards native ticket items and enables their island flags:
+Mystic and Aurora Tickets in FireRed/LeafGreen; Eon Ticket, Mystic Ticket,
+Aurora Ticket and Old Sea Map in Emerald.
+
+## 1.2.4 — Animated shinies
+
+Shiny front and back pictures use the pack's animated sheets in FireRed,
+LeafGreen and Emerald. Native animation frames no longer replace a managed
+sprite with a static ROM frame. All 1,025 base species have animated shiny
+front and back sheets. See [CHANGELOG-1.2.4.txt](CHANGELOG-1.2.4.txt).
+
+## 1.2.3 — Automatic battle sprite height
+
+Battle placement limits the existing 14px lift to each picture's transparent
+headroom across its animation. Tall sprites move down as needed; small sprites
+keep their earlier position. See [CHANGELOG-1.2.3.txt](CHANGELOG-1.2.3.txt).
+
+## 1.2.2 — Mew and special encounter coverage
+
+Mew gains postgame wild homes in Cerulean Cave 1F and Seven Island Sevault
+Canyon in FireRed and LeafGreen. Native static encounters remain available.
+See [CHANGELOG-1.2.2.txt](CHANGELOG-1.2.2.txt).
+
+## 1.2.1 — Postgame special encounters
+
+Emerald adds wild homes for all 94 special species. FireRed and LeafGreen add
+postgame homes for Gen 2–9 specials while keeping their native Gen 1
+encounters. The new pools unlock after clearing the Pokémon League, use levels
+55–70, follow WILD GENS and share a 1% roll when ordinary candidates exist.
+See [CHANGELOG-1.2.1.txt](CHANGELOG-1.2.1.txt).
 
 ## 1.2.0 — Emerald port
 

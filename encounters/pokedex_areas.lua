@@ -47,7 +47,7 @@ local function nationalFor(Pokemon, raw)
 end
 
 local function addPool(byNational, area, pool)
-  for _, key in ipairs({ "common", "rare", "featured" }) do
+  for _, key in ipairs({ "common", "rare", "featured", "special" }) do
     for _, mon in ipairs(pool[key] or {}) do
       addArea(byNational, tonumber(mon.id), area)
     end
@@ -69,7 +69,7 @@ local function addNativeEncounterSpecies(byNational, area, record, Pokemon, terr
   end
 end
 
-function M.install(mod, policy, readSelection)
+function M.install(mod, policy, readSelection, readPostgame)
   if type(policy) ~= "table" or type(policy.pool) ~= "function"
       or type(readSelection) ~= "function" then
     return nil, "invalid encounter policy"
@@ -88,6 +88,7 @@ function M.install(mod, policy, readSelection)
     pcall(require, "src.import.gba.map_sections_extract")
 
   local cachedChoice = nil
+  local cachedPostgame = nil
   local cachedAreas = {}
 
   local function dexAreaForMap(mapId)
@@ -128,7 +129,7 @@ function M.install(mod, policy, readSelection)
     return nil
   end
 
-  local function rebuild(choiceIndex)
+  local function rebuild(choiceIndex, postgame)
     local byNational = {}
     local maps = {}
 
@@ -151,12 +152,14 @@ function M.install(mod, policy, readSelection)
           local native = type(row.record) == "table" and
             (row.record[terrain] or (terrain == "land" and row.record.grass))
           if native then
-            local pool = policy:pool(row.id, choiceIndex, terrain)
+            local pool = policy:pool(row.id, choiceIndex, terrain,
+              { postgame = postgame })
             addPool(byNational, area, pool)
 
             -- When the selected generation has no replacement, the native
             -- encounter remains available on this terrain.
-            if #(pool.common or {}) == 0 and #(pool.rare or {}) == 0 then
+            if #(pool.common or {}) + #(pool.rare or {})
+                + #(pool.featured or {}) + #(pool.special or {}) == 0 then
               addNativeEncounterSpecies(byNational, area, row.record,
                 Pokemon, terrain)
             end
@@ -172,6 +175,7 @@ function M.install(mod, policy, readSelection)
     end
 
     cachedChoice = choiceIndex
+    cachedPostgame = postgame
     cachedAreas = byNational
 
     local speciesCount, pairCount = 0, 0
@@ -181,8 +185,8 @@ function M.install(mod, policy, readSelection)
     end
 
     mod.log:info(
-      "FireRed Pokedex Area encounter index rebuilt: choice %d, %d maps, %d species, %d area links",
-      tonumber(choiceIndex) or 0, mapped, speciesCount, pairCount
+      "FireRed Pokedex Area encounter index rebuilt: choice %d, postgame %s, %d maps, %d species, %d area links",
+      tonumber(choiceIndex) or 0, tostring(postgame), mapped, speciesCount, pairCount
     )
   end
 
@@ -190,8 +194,9 @@ function M.install(mod, policy, readSelection)
     PokedexData.init()
 
     local choiceIndex = readSelection()
-    if cachedChoice ~= choiceIndex then
-      rebuild(choiceIndex)
+    local postgame = type(readPostgame) == "function" and readPostgame() == true or false
+    if cachedChoice ~= choiceIndex or cachedPostgame ~= postgame then
+      rebuild(choiceIndex, postgame)
     end
 
     local national = nationalFor(Pokemon, speciesId)

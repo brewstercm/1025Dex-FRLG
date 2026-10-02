@@ -41,6 +41,7 @@ return function(mod)
   component('encounters')
   assert(load(assert(mod:read('emerald.lua')), '@1025dex/emerald.lua'))()(mod)
   assert(load(assert(mod:read('menu_world.lua')), '@menu_world.lua'))()(mod)
+  component('events')
   -- Lift the FireRed data-card front pic clear of the lower divider.
   -- The stock page draws its 64x64 pic at (152, 24). Intercept only that
   -- draw during the entry page, leaving battle art and other pages alone.

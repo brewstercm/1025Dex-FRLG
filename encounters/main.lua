@@ -7,7 +7,8 @@ return function(mod)
   local Policy=data("policy.lua")
   local locations=data("locations.lua")
   for _,loc in ipairs(data("hoenn_locations.lua")) do locations[#locations+1]=loc end
-  local policy=Policy.new(data("roster.lua"),locations,math.random)
+  local Progress=data("progress.lua")
+  local policy=Policy.new(data("roster.lua"),locations,math.random,Progress.postgame)
   local OPTION_KEY="fireredGenEncounterPool"
   local active=Policy.default
 
@@ -26,11 +27,11 @@ return function(mod)
     return active
   end
 
-  -- FireRed and LeafGreen's Area page reads the native encounter index.
-  -- Keep it aligned with the terrain-aware pools used for actual battles.
+  -- Keep the maintained FireRed/LeafGreen Area page aligned with both the
+  -- ordinary encounter pools and the League-gated special pools.
   if GameVersion.get() ~= "emerald" then
     local Areas=data("pokedex_areas.lua")
-    local okAreas,areaErr=pcall(Areas.install,mod,policy,readSelection)
+    local okAreas,areaErr=pcall(Areas.install,mod,policy,readSelection,Progress.postgame)
     if not okAreas then
       mod.log:warn("FRLG Pokedex Area integration unavailable: "..tostring(areaErr))
     end
@@ -167,13 +168,14 @@ return function(mod)
       if area then
         local pool, loc = policy:pool(mapId, readSelection(), terrain)
         local slots, seen = {}, {}
-        for _, group in ipairs({pool.common, pool.rare, pool.featured}) do
+        for _, group in ipairs({pool.common, pool.rare, pool.featured, pool.special}) do
           for _, mon in ipairs(group or {}) do
             local species = P.speciesFromName(mon.name)
             if species and not seen[species] then
               seen[species] = true
-              slots[#slots+1] = {species=species,
-                minLevel=math.min(loc.hi, math.max(loc.lo, mon.gate or 1)), maxLevel=loc.hi}
+              local lo,hi=math.min(loc.hi,math.max(loc.lo,mon.gate or 1)),loc.hi
+              if mon.special then lo,hi=Policy.specialLevelRange(mon) end
+              slots[#slots+1]={species=species,minLevel=lo,maxLevel=hi}
             end
           end
         end

@@ -4,7 +4,7 @@ local Policy = {}
 -- Psyduck, Wooper, Mudkip, etc. remain valid shoreline/grass encounters.
 local WATER_ONLY = {}
 for _,id in ipairs({72,73,90,91,116,117,118,119,120,121,129,130,131,
-  170,171,211,222,223,224,226,230,318,319,320,321,339,340,349,350,366,367,368,369,370,
+  382,170,171,211,222,223,224,226,230,318,319,320,321,339,340,349,350,366,367,368,369,370,
   456,457,458,489,490,594,602,603,604,535,550,690,691,692,693,746,779,
   846,847,902,960,961,962,963,964,977,978}) do WATER_ONLY[id]=true end
 function Policy.allows(mon, terrain)
@@ -77,7 +77,75 @@ local function hoennHabitat(mon,loc,terrain)
   return mon.habitat==loc.habitat
 end
 
-function Policy.new(roster, locations, random)
+-- These additions are unlocked only after the native League-clear flag.
+-- FR/LG's birds and Mewtwo stay native; Mew gains League-gated wild homes.
+-- Emerald and the remaining FR/LG specials keep their existing assignments.
+local SPECIAL_HOMES = {
+  frlg={
+    water={"FR_FIVE_ISLAND_WATER_LABYRINTH","FR_SIX_ISLAND_WATER_PATH"},
+    land={
+      electric={"FR_CERULEAN_CAVE_1F","FR_CERULEAN_CAVE_2F"},
+      ice={"FR_FOUR_ISLAND_ICEFALL_CAVE_B1F","FR_CERULEAN_CAVE_2F"},
+      ghost={"FR_FIVE_ISLAND_LOST_CAVE_ROOM1","FR_FIVE_ISLAND_LOST_CAVE_ROOM10"},
+      forest={"FR_SIX_ISLAND_PATTERN_BUSH","FR_THREE_ISLAND_BERRY_FOREST"},
+      volcanic={"FR_MT_EMBER_RUBY_PATH_B3F","FR_MT_EMBER_SUMMIT_PATH_3F"},
+      sea={"FR_SEAFOAM_ISLANDS_B4F","FR_FOUR_ISLAND_ICEFALL_CAVE_B1F"},
+      freshwater={"FR_CERULEAN_CAVE_1F","FR_CERULEAN_CAVE_B1F"},
+      cave={"FR_CERULEAN_CAVE_B1F","FR_MT_EMBER_RUBY_PATH_B3F"},
+      meadow={"FR_CERULEAN_CAVE_2F","FR_SEVEN_ISLAND_SEVAULT_CANYON"},
+      safari={"FR_CERULEAN_CAVE_2F","FR_SEVEN_ISLAND_SEVAULT_CANYON"},
+    },
+  },
+  emerald={
+    water={"EM_UNDERWATER_ROUTE124","EM_UNDERWATER_ROUTE126"},
+    land={
+      electric={"EM_NEW_MAUVILLE_INSIDE","EM_ARTISAN_CAVE_1F"},
+      ice={"EM_SHOAL_CAVE_LOW_TIDE_ICE_ROOM","EM_ARTISAN_CAVE_B1F"},
+      ghost={"EM_MT_PYRE_6F","EM_MT_PYRE_SUMMIT"},
+      forest={"EM_ROUTE120","EM_SAFARI_ZONE_NORTHEAST"},
+      volcanic={"EM_FIERY_PATH","EM_SEAFLOOR_CAVERN_ROOM8"},
+      sea={"EM_SEAFLOOR_CAVERN_ROOM8","EM_SHOAL_CAVE_LOW_TIDE_INNER_ROOM"},
+      freshwater={"EM_ROUTE120","EM_ARTISAN_CAVE_1F"},
+      cave={"EM_METEOR_FALLS_STEVENS_CAVE","EM_SKY_PILLAR_5F"},
+      meadow={"EM_ARTISAN_CAVE_1F","EM_SKY_PILLAR_5F"},
+      safari={"EM_ARTISAN_CAVE_B1F","EM_SKY_PILLAR_3F"},
+    },
+  },
+}
+-- Species without a native FR/LG encounter can have explicit homes without
+-- duplicating the birds/Mewtwo or changing existing habitat assignments.
+local EXTRA_SPECIAL_HOMES = {
+  frlg = {
+    [151] = {land={"FR_CERULEAN_CAVE_1F", "FR_SEVEN_ISLAND_SEVAULT_CANYON"}},
+  },
+}
+Policy.extraSpecialHomes=EXTRA_SPECIAL_HOMES
+Policy.specialHomes=SPECIAL_HOMES
+Policy.specialChance=100 -- one shared 1% roll when ordinary candidates exist
+function Policy.specialLevelRange(mon)
+  local lo=math.max(55,tonumber(mon.gate) or 1)
+  return lo,math.max(lo,70)
+end
+local function specialAt(mon,mapId,terrain)
+  if not mon.special or not Policy.allows(mon,terrain) then return false end
+  local emerald=tostring(mapId):match("^EM_")~=nil
+  local extra=EXTRA_SPECIAL_HOMES[emerald and "emerald" or "frlg"]
+  local explicit=extra and extra[mon.id]
+  if explicit then
+    for _,name in ipairs(explicit[terrain] or {}) do
+      if key(name)==key(mapId) then return true end
+    end
+    return false
+  end
+  if not emerald and (tonumber(mon.gen) or 1)<=1 then return false end
+  local homes=SPECIAL_HOMES[emerald and "emerald" or "frlg"]
+  local names=terrain=="water" and homes.water
+    or terrain=="land" and homes.land[mon.habitat] or nil
+  for _,name in ipairs(names or {}) do if key(name)==key(mapId) then return true end end
+  return false
+end
+
+function Policy.new(roster, locations, random, progress)
   local self = {roster=roster, locations=locations, random=random or math.random, pools={}}
   self.byMap = {}
   for i,loc in ipairs(locations) do self.byMap[key(loc.map)] = i end
@@ -112,9 +180,8 @@ function Policy.new(roster, locations, random)
     return mon.id >= choice.first and mon.id <= choice.last
   end
 
-  -- Random encounters belong to ordinary species only. The source roster
-  -- carries legendary/mythical entries, but those cannot create one-off
-  -- overworld encounters and must never duplicate the ROM's static battles.
+  -- Ordinary homes remain unchanged. Specials have explicit separate homes
+  -- and never enter early-area, fishing, Rock Smash or generic fallback pools.
   local function homeFor(mon)
     local wanted = tonumber(mon.location)
     return wanted and locations[wanted] and wanted or nil
@@ -144,15 +211,18 @@ function Policy.new(roster, locations, random)
     end
   end
 
-  function self:pool(mapId, choiceIndex, terrain)
+  function self:pool(mapId, choiceIndex, terrain, context)
     terrain=terrain or "land"
     local locIndex,base = self:location(mapId)
     local loc=terrainProfile(base,terrain)
     local choice,normalized = self:choice(choiceIndex)
+    local postgame=context and context.postgame
+    if postgame==nil and progress then postgame=progress() end
+    postgame=postgame==true
     if not loc then
-      return {common={},rare={},featured={},choice=choice},nil
+      return {common={},rare={},featured={},special={},choice=choice},nil
     end
-    local cacheKey = locIndex .. ":" .. normalized .. ":" .. terrain
+    local cacheKey = key(mapId) .. ":" .. locIndex .. ":" .. normalized .. ":" .. terrain .. ":" .. (postgame and 1 or 0)
     if self.pools[cacheKey] then return self.pools[cacheKey],loc end
     local common,rare,featured,seen = {},{},{},{}
     local function add(list,mon)
@@ -208,17 +278,23 @@ function Policy.new(roster, locations, random)
       end
     end
 
-    local result={common=common,rare=rare,featured=featured,location=loc,choice=choice}
+    local special={}
+    if postgame then
+      for _,mon in ipairs(self.roster) do
+        if inChoice(mon,choice) and specialAt(mon,mapId,terrain) then special[#special+1]=mon end
+      end
+    end
+    local result={common=common,rare=rare,featured=featured,special=special,location=loc,choice=choice}
     self.pools[cacheKey]=result
     return result,loc
   end
 
-  function self:choose(mapId, choiceIndex, nativeLevel, terrain)
-    local pool,loc = self:pool(mapId, choiceIndex, terrain)
+  function self:choose(mapId, choiceIndex, nativeLevel, terrain, context)
+    local pool,loc = self:pool(mapId, choiceIndex, terrain, context)
     if not loc then return nil end
     if loc.hoenn and (terrain=="fishing" or terrain=="rocks") then
       local ceiling=math.max(loc.lo,tonumber(nativeLevel) or loc.lo)
-      local filtered={common={},rare={},featured={},choice=pool.choice}
+      local filtered={common={},rare={},featured={},special={},choice=pool.choice}
       for _,kind in ipairs({"common","rare","featured"}) do
         for _,mon in ipairs(pool[kind]) do
           if (mon.gate or 1)<=ceiling then filtered[kind][#filtered[kind]+1]=mon end
@@ -235,7 +311,9 @@ function Policy.new(roster, locations, random)
       pool=filtered
     end
     local list
-    if #pool.featured > 0 and self.random(ROUTE_1_FEATURED_CHANCE) == 1 then
+    if #pool.special>0 and (#pool.common+#pool.rare+#pool.featured==0 or self.random(Policy.specialChance)==1) then
+      list=pool.special
+    elseif #pool.featured > 0 and self.random(ROUTE_1_FEATURED_CHANCE) == 1 then
       list=pool.featured
     elseif #pool.rare > 0 and (#pool.common == 0 or self.random(20) == 1) then
       list=pool.rare
@@ -244,6 +322,10 @@ function Policy.new(roster, locations, random)
     end
     if #list == 0 then return nil end
     local mon=list[self.random(#list)]
+    if mon.special then
+      local lo,hi=Policy.specialLevelRange(mon)
+      return mon,self.random(lo,hi)
+    end
     local level=math.max(tonumber(nativeLevel) or loc.lo,loc.lo,mon.gate)
     return mon,math.min(level,loc.hi)
   end

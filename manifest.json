@@ -1,7 +1,7 @@
 {
   "id": "1025dex",
   "name": "1025Dex",
-  "version": "1.2.0",
+  "version": "1.2.5",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -22,6 +22,6 @@
     "g9-battle-sprites",
     "firered_gen_encounters"
   ],
-  "description": "All 1025 Pokemon for FireRed, LeafGreen and Emerald, with animated sprites, generation-selectable encounters and expanded PC storage. See CREDITS.md.",
+  "description": "All 1025 Pokemon for FireRed, LeafGreen and Emerald, with animated sprites, event gifts and tickets, generation-selectable encounters and expanded PC storage. See CREDITS.md.",
   "github": "brewstercm/1025Dex-FRLG"
 }

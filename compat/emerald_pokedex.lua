@@ -956,9 +956,12 @@ local function selectBar(s, submenu, selected)
 end
 
 local function footprintImage(nat)
+  -- The Emerald ROM only has footprints for Gen 1-3 species. Added species
+  -- have front sprites, but no ROM footprint asset to load here.
+  if nat > 386 then return nil end
   local sp = Pokedex.speciesOf(nat)
-  local img = Kit.rgbaImage("data/generated/gba/pokemon/footprints/" .. sp .. ".rgba", 16, 16)
-  return img
+  local ok, img = pcall(Kit.rgbaImage, "data/generated/gba/pokemon/footprints/" .. sp .. ".rgba", 16, 16)
+  return ok and img or nil
 end
 
 -- pokeemerald/src/pokedex.c:3231

@@ -35,6 +35,11 @@ return function(mod)
     if not okAreas then
       mod.log:warn("FRLG Pokedex Area integration unavailable: "..tostring(areaErr))
     end
+  else
+    local Areas=data("emerald_pokedex_areas.lua")
+    mod.exports.emeraldAreaEncounters=function(headers,species,alteringCaveId)
+      return Areas.build(headers,species,alteringCaveId,policy,readSelection(),Progress.postgame())
+    end
   end
 
   local okRows,Rows=pcall(require,"src.ui.game3.option_rows")

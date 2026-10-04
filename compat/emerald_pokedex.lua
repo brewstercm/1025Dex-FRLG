@@ -181,7 +181,7 @@ local function newView(opts)
   }
   s.nationalEnabled = nationalEnabled(session)
   local pd = type(session.pokedex) == "table" and session.pokedex or {}
-  s.dexMode = tonumber(pd.mode) or List.DEX_MODE_HOENN
+  s.dexMode = tonumber(pd.mode) or List.DEX_MODE_NATIONAL
   if not s.nationalEnabled then s.dexMode = List.DEX_MODE_HOENN end
   s.dexOrder = tonumber(pd.order) or List.ORDER_NUMERICAL
   s.selected = Pokedex.lastSelected
@@ -1125,7 +1125,7 @@ function tasks.switchFromInfo(s)
   end
 end
 
-local function areaContext(s)
+local function areaContext(s, species)
   local C = constants(s.session)
   local RegionMap = require("src.ui.game3.rse.region_map")
   local Flags = require("src.core.game3.scripting.flags")
@@ -1155,6 +1155,10 @@ local function areaContext(s)
   local alteringCaveId = tonumber(Flags.getVar(store, nil, C:var("VAR_ALTERING_CAVE_WILD_SET"))) or 0
   local numTables = 9
   if alteringCaveId >= numTables then alteringCaveId = 0 end
+  local moddedAreas = Pokedex.areaEncounters and species ~= nil
+  if moddedAreas then
+    encounters = Pokedex.areaEncounters(encounters, species, alteringCaveId)
+  end
   return {
     encounters = encounters,
     groups = {
@@ -1168,9 +1172,9 @@ local function areaContext(s)
     alteringCaveId = alteringCaveId,
     roamer = roamer,
     flag = function(id) return Flags.getFlag(store, nil, id) == true end,
-    feebas = area.feebas,
+    feebas = moddedAreas and {} or area.feebas,
     landmarks = area.landmarks,
-    hiddenSpecies = area.hiddenSpecies,
+    hiddenSpecies = moddedAreas and {} or area.hiddenSpecies,
     movingMapSecs = area.movingMapSecs,
     NONE = RegionMap.mapsec("NONE"),
   }
@@ -1197,7 +1201,7 @@ function tasks.loadArea(s)
     s.bg = { [1] = selectBar(s, true, 0) }
     local RegionMap = require("src.ui.game3.rse.region_map")
     local species = Pokedex.speciesOf(item(s, s.selected).dexNum)
-    local found = Area.findMapsWithMon(species, areaContext(s))
+    local found = Area.findMapsWithMon(species, areaContext(s, species))
     local pal = {}
     for i = 0, 255 do pal[i] = 0 end
     Gfx.loadPalette(pal, "areaMap", 112)

@@ -289,9 +289,9 @@ function Policy.new(roster, locations, random, progress)
     return result,loc
   end
 
-  function self:choose(mapId, choiceIndex, nativeLevel, terrain, context)
+  function self:eligiblePool(mapId, choiceIndex, nativeLevel, terrain, context)
     local pool,loc = self:pool(mapId, choiceIndex, terrain, context)
-    if not loc then return nil end
+    if not loc then return pool, nil end
     if loc.hoenn and (terrain=="fishing" or terrain=="rocks") then
       local ceiling=math.max(loc.lo,tonumber(nativeLevel) or loc.lo)
       local filtered={common={},rare={},featured={},special={},choice=pool.choice}
@@ -310,6 +310,12 @@ function Policy.new(roster, locations, random, progress)
       end
       pool=filtered
     end
+    return pool,loc
+  end
+
+  function self:choose(mapId, choiceIndex, nativeLevel, terrain, context)
+    local pool,loc = self:eligiblePool(mapId, choiceIndex, nativeLevel, terrain, context)
+    if not loc then return nil end
     local list
     if #pool.special>0 and (#pool.common+#pool.rare+#pool.featured==0 or self.random(Policy.specialChance)==1) then
       list=pool.special

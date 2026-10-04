@@ -3,6 +3,7 @@ return function(mod)
   if require("src.core.GameVersion").get()~="emerald" then return end
   local function data(path) return assert(load(assert(mod:read(path)),"@"..mod.path.."/"..path))() end
   local Pokedex=data("compat/emerald_pokedex.lua")
+  Pokedex.areaEncounters=mod.exports.emeraldAreaEncounters
   local national=data("dex/data/species/generated/national.lua")
   for _,record in pairs(national.register or {}) do
     local nat=record.dex

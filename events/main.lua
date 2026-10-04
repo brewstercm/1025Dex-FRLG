@@ -189,20 +189,25 @@ return function(mod)
     local rows = next(game, items)
     if type(rows) ~= "table" then return rows end
     local hasFieldSave = false
-    for _, row in ipairs(rows) do
+    local modsIndex
+    for i, row in ipairs(rows) do
       if row.id == "save" then hasFieldSave = true end
       if row.id == "1025dex_events" then return rows end
+      if row.id == "mods" or row.id == "mod_manager"
+          or type(row.label) == "string" and row.label:upper() == "MODS" then
+        modsIndex = i
+      end
     end
     if not hasFieldSave then return rows end
 
-    rows[#rows + 1] = {
+    table.insert(rows, modsIndex or #rows + 1, {
       id = "1025dex_events",
       label = "EVENTS",
       onSelect = function(_, session)
         StartMenu.close(true)
         showRoot(session)
       end,
-    }
+    })
     return rows
   end)
 

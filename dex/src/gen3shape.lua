@@ -4,6 +4,20 @@
 -- including FRLG's unused/Unown slots, and allocate additions above them.
 local M = { ROM_DEX_MAX = 386 }
 
+-- PokeAPI stores the chance of being female in eighths. Gen 3 compares the
+-- low personality byte with a 0-255 threshold; 254 and 255 are reserved for
+-- female-only and genderless species.
+function M.genderRatio(rate)
+  rate = tonumber(rate)
+  if rate == -1 then return 0xFF end
+  if rate == 0 then return 0 end
+  if rate == 8 then return 0xFE end
+  if rate and rate >= 1 and rate <= 7 and rate == math.floor(rate) then
+    return math.floor(rate * 255 / 8)
+  end
+  return nil
+end
+
 function M.slot(dex)
   if dex > 386 then return dex + 64 end
   local P = require('src.core.game3.pokemon')
@@ -40,6 +54,7 @@ function M.record(source, machines)
       specialAttack = source.spAttack or stats.special or 1,
       specialDefense = source.spDefense or stats.special or 1 },
     catchRate = source.catchRate or 0, baseExp = source.baseExp or 0,
+    genderRatio = M.genderRatio(M.genderRates and M.genderRates[source.id]),
     growthRate = source.growthRate or "MEDIUM_FAST",
     learnset = source.learnset or {}, tmhm = machines or {}, evolutions = {},
     dexEntry = { kind = entry.kind or "", height = math.floor(h * 10 + .5),
@@ -56,6 +71,8 @@ function M.install(mod, national)
   local Schemas = require('src.mods.Schemas')
   local Dex = require('src.core.game3.dex')
   local PokedexData = require('src.core.game3.pokedex_data')
+  local ratesPath = 'data/species/generated/gender_rates.lua'
+  M.genderRates = assert(load(assert(mod:read(ratesPath)), '@' .. mod.path .. '/' .. ratesPath))()
   if not P._moveNames and P.moveName then P.moveName(1) end
   local Starts = assert(load(assert(mod:read('src/gen3starts.lua'))))()
   local repaired, substitutions = Starts.repair(national,
@@ -123,11 +140,34 @@ function M.install(mod, national)
     Dex.countOwned = Dex.countCaught
   end
   local records, ops = {}, {}
+  local addedSlots = {}
   for id, source in pairs(national.register or {}) do
     if not source.form and source.dex > 386 and source.dex <= 1025 then
       local row = M.record(source, machineCompat[id])
       row.name = source.name:upper()
       records[id], ops[id] = row, true
+      addedSlots[row.index] = true
+    end
+  end
+  local function repairSavedGender(session)
+    if not session then return end
+    local repaired = 0
+    local function repair(mon)
+      if type(mon) ~= 'table' or mon.gender ~= 'U' then return end
+      local slot = tonumber(mon.species)
+      if not addedSlots[slot] or tonumber(mon.personality) == nil then return end
+      local gender = P.gender(slot, mon.personality)
+      if gender == 'U' then return end
+      mon.gender = gender
+      repaired = repaired + 1
+    end
+    for _, mon in pairs(session.party or {}) do repair(mon) end
+    local storage = session.storage
+    for _, box in pairs((storage and storage.boxes) or {}) do
+      for _, mon in pairs(box.mons or {}) do repair(mon) end
+    end
+    if repaired > 0 then
+      mod.log:info(('Game3 saved Pokemon genders repaired: %d'):format(repaired))
     end
   end
   local registry = {ops=ops, get=function(_,id) return records[id] end}
@@ -159,6 +199,8 @@ function M.install(mod, national)
       count = count + 1
     end
     mod.log:info('Game3 extended species restored: ' .. count)
+    local Runtime = require('src.core.game3.runtime')
+    repairSavedGender(Runtime.getSession())
   end
   P.onReload(apply, 'national_dex_firered')
   apply()

@@ -3,6 +3,26 @@
 -- active internal species slot back to its National number and play the asset
 -- stored under that exact number instead.
 return function(mod)
+  if require('src.core.GameVersion').generation() < 3 then
+    local source=assert(mod:rootRead('dex/data/species/generated/national.lua'))
+    local national=assert(load(source,'@1025dex/cries/national.lua'))()
+    local count=0
+    for _,rows in ipairs({national.patch,national.register}) do
+      for id,row in pairs(rows or {}) do
+        local native=mod.content.pokemon:get(id)
+        local number=row.dex or (native and native.dex)
+        if type(number)=='number' and number>=1 and number<=1025 and not row.form then
+          local cry={file=mod.assets:path('assets/'..number..'.ogg')}
+          if mod.content.cries:get(id) then mod.content.cries:override(id,cry)
+          else mod.content.cries:register(id,cry) end
+          count=count+1
+        end
+      end
+    end
+    mod.exports.cryCount=count
+    mod.log:info('Game Boy National cry pack registered; Yellow Pikachu voice retained')
+    return
+  end
   local Audio = require('src.core.game3.audio')
   local Pokemon = require('src.core.game3.pokemon')
   local Sample = require('src.core.game3.m4a_sample')

@@ -1,96 +1,78 @@
-# 1025Dex 1.2.5
+# 1025Dex 1.2.15 — maintained version
 
-Adds the full 1,025-species National Dex to FireRed, LeafGreen and Emerald, animated Pokémon
-sprites, generation-selectable wild encounters, Kanto, Sevii and Hoenn encounter pools and
-36 PC boxes with space for 1,080 Pokémon.
+Adds all 1,025 National species, animated normal/shiny sprites, cries,
+generation-selectable wild encounters and expanded PC storage. Supports Red,
+Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, FireRed, LeafGreen and Emerald.
 
-**Based on national-dex by Sanjin and Tekky.**
-Original mod: https://github.com/sanjinpepic/gen1recomp-national-dex
+Requires **Gen1Recomp 0.3.54 or newer in 0.3.x**. Compatible with Hoennto 0.2.0
+and the WildFollowers 3.0.0-beta.1 encounter provider API.
 
-**Pokémon sprite credits: Gen9 Resource Pack and its contributing artists.**
+Based on [1025Dex](https://github.com/Bentley734/1025Dex/releases/tag/1.2.15)
+and [national-dex by Sanjin and Tekky](https://github.com/sanjinpepic/gen1recomp-national-dex).
+Pokémon sprite credits: Gen9 Resource Pack and its contributing artists.
 See [CREDITS.md](CREDITS.md) for attribution and included source/license notices.
 
-Browse the [Emerald ordinary wild encounter list](docs/emerald-gen1-9-locations.md)
-and [postgame special spawn list](POSTGAME-SPAWNS.txt). The ordinary list uses
-WILD GENS set to GEN 1–9.
+## Updates merged from upstream
 
-## 1.2.5 — Shiny rendering fix
+- Evolution rows and TM/HM permissions survive late content registration and
+  ROM reloads. Added wild Pokémon receive three or four usable Gen 3 moves;
+  unsupported modern attacks receive comparable replacements at their learn levels.
+- First-catch Pokédex screens return to the battle UI before nickname/PC messages,
+  retaining the caught Pokémon's personality, OT and shiny appearance.
+- Native encounter species, channels and level ranges are retained alongside
+  habitat-compatible additions. Mt. Moon and Diglett's Cave use corrected native
+  level/rarity rules. Ultra Beasts require League clear and have separate rarity rolls.
+- All eleven games register the complete roster. Ruby/Sapphire read their live
+  native encounter tables; Game Boy additions preserve successful native rolls
+  and failed encounters. Hoennto projection retains the expanded collection.
+- Mods can use the shared [National species-number API](SPECIES-NUMBERS.md)
+  without changing native cartridge IDs in existing saves.
 
-The Gen 3 sprite provider remains active after startup and reload, including
-when a screen caches an image. It recognizes native shiny data and keeps
-separate animated images for normal and shiny front and back art. The battle
-height correction from 1.2.3 is retained. See [CHANGELOG-1.2.5.txt](CHANGELOG-1.2.5.txt).
+See [the merge record](docs/upstream-1.2.15-merge.md),
+[Gen 3 move rules](GEN3-MOVE-RULES.txt) and [evolution rules](EVOLUTION-RULES.txt).
+The evolution reference describes upstream defaults; the FR/LG substitutions
+below take precedence in this maintained build.
 
-This maintained checkout adds an **EVENTS** archive in the field menu with
-one-time, fateful gifts of Mew, Celebi, Jirachi, Deoxys, Lugia, Ho-Oh, Latias
-and Latios. Celebi and Jirachi use their AGETO and WISHMKR event identities.
-The archive also awards native ticket items and enables their island flags:
-Mystic and Aurora Tickets in FireRed/LeafGreen; Eon Ticket, Mystic Ticket,
-Aurora Ticket and Old Sea Map in Emerald.
+## Maintained additions
 
-## 1.2.4 — Animated shinies
+The **EVENTS** archive appears above MODS in the field menu in FireRed,
+LeafGreen and Emerald. It provides one-time gifts of Mew, Celebi, Jirachi,
+Deoxys, Lugia, Ho-Oh, Latias and Latios. Celebi and Jirachi retain their AGETO
+and WISHMKR event identities. Tickets also enable native island flags:
+Mystic/Aurora Tickets in FR/LG; Eon/Mystic/Aurora Tickets and Old Sea Map in Emerald.
 
-Shiny front and back pictures use the pack's animated sheets in FireRed,
-LeafGreen and Emerald. Native animation frames no longer replace a managed
-sprite with a static ROM frame. All 1,025 base species have animated shiny
-front and back sheets. See [CHANGELOG-1.2.4.txt](CHANGELOG-1.2.4.txt).
+FR/LG and RSE Pokédex Area pages follow the current WILD GENS selection and
+League state, including Ultra Beast pools. The RSE Pokédex starts in National
+mode by default and safely omits unavailable later-species footprints.
 
-## 1.2.3 — Automatic battle sprite height
+FR/LG retains [the maintained evolution substitutions](dex/data/evolutions/compat_overrides.lua)
+for unavailable modern triggers, including distinct Sun/Moon Stone branches.
+Held-item branches for Slowking, Clamperl and other native trade-item species
+retain upstream precedence. Emerald and Ruby/Sapphire use upstream evolution defaults.
 
-Battle placement limits the existing 14px lift to each picture's transparent
-headroom across its animation. Tall sprites move down as needed; small sprites
-keep their earlier position. See [CHANGELOG-1.2.3.txt](CHANGELOG-1.2.3.txt).
+Added Gen 3 species retain their correct gender ratios. Previously saved added
+Pokémon with an unknown gender are repaired from their existing personality,
+including Pokémon in expanded PC boxes.
 
-## 1.2.2 — Mew and special encounter coverage
+## Encounter references
 
-Mew gains postgame wild homes in Cerulean Cave 1F and Seven Island Sevault
-Canyon in FireRed and LeafGreen. Native static encounters remain available.
-See [CHANGELOG-1.2.2.txt](CHANGELOG-1.2.2.txt).
+- [Emerald ordinary wild locations](docs/emerald-gen1-9-locations.md)
+- [Post-League special and Ultra Beast homes](POSTGAME-SPAWNS.txt)
+- [Upstream encounter atlas](EncounterAtlas.csv) and [encounter audit](ENCOUNTER-AUDIT.md)
 
-## 1.2.1 — Postgame special encounters
-
-Emerald adds wild homes for all 94 special species. FireRed and LeafGreen add
-postgame homes for Gen 2–9 specials while keeping their native Gen 1
-encounters. The new pools unlock after clearing the Pokémon League, use levels
-55–70, follow WILD GENS and share a 1% roll when ordinary candidates exist.
-See [CHANGELOG-1.2.1.txt](CHANGELOG-1.2.1.txt).
-
-## 1.2.0 — Emerald port
-
-Requires gen1recomp **0.3.36 or newer in 0.3.x**. Install alongside
-**WildFollowers 2.15.0** for visible wilds and party followers in Hoenn.
-
-- All 1,025 National species use the correct Emerald internal slots. Native
-  Gen 1–3 species keep their ROM data; new species receive Gen 3-compatible
-  learnsets, evolutions, animated sprites and cries. Moves unavailable in
-  Gen 3 use the existing compatibility substitutions.
-- The native Emerald Pokédex retains its 202-species Hoenn list and gains a
-  1,025-species National list, six sort orders, color/type search, descriptions,
-  animated pictures and four-digit seen/owned totals. National mode is enabled
-  while the mod is active. Added entry text wraps within the native page.
-- 116 native Hoenn encounter-map profiles supply separate land, Surf, fishing
-  and Rock Smash pools. WILD GENS has all 17 generation selections. Later
-  species receive habitat homes and appropriate evolution-level gates.
-  Old Rod and Rock Smash rolls retain their native level ceiling.
-- Legendary, mythical and other special species remain outside ordinary
-  random pools. Native scripted and static battles are preserved.
-- 36 PC boxes hold 1,080 Pokémon. Native save serialization retains additions,
-  including the last box and slot; existing storage metadata is preserved.
-- Kanto/Sevii distributions and bundled sprite/audio bytes remain unchanged.
-
-The upstream 1.2.0 release reports validation using the 0.3.36 Loader/sandbox and supplied Emerald USA data:
-all 1,025 slot mappings; all 3,417 Hoenn terrain/generation pools; all six native
-Pokédex sorts; color search; descriptions; four-digit totals; Gen 3 learnsets;
-36-box save roundtrip; and dataset reload. Full in-game playthrough pending.
-
-This maintained checkout also keeps its FireRed/LeafGreen Pokédex Area encounter
-index and its Gen 3 compatibility evolution choices. The ZIP's held-item rules
-for Slowking and Clamperl take precedence over the older stone alternatives.
+The maintained location references are regenerated from this checkout's live
+standalone policy using WILD GENS GEN 1–9. Hoennto campaign assignments differ.
+Run `python tools/build_maintained_guides.py` with lupa installed to refresh them.
 
 ## Updating
 
-Replace the previous 1025Dex folder and restart the game. If using visible wild
-Pokémon, use WildFollowers 2.15.0 or a compatible newer release.
+Replace the previous 1025Dex folder and restart the game. Update the engine to
+0.3.54+ first. If installed, use 1025DexNav 0.1.13 or newer for matching wild-move
+previews. Visible wild providers must support the applicable 1025Dex encounter API.
 
 Back up your save before updating. Keep expanded-storage support enabled while
-boxes 15–36 contain Pokémon; the unmodified engine supports only 14 boxes.
+boxes 15–36 contain Pokémon; the unmodified Gen 3 engine supports only 14 boxes.
+
+Validation includes headless encounter, move, capture-flow, species-registration,
+Hoennto projection and maintained integration tests. A graphical playthrough of
+this merged build has not been performed.

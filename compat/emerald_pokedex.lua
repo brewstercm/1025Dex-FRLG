@@ -1988,7 +1988,7 @@ function tasks.caught(s)
     c.text = monInfo(s, c.dexNum, s.nationalEnabled, true, true)
     s.state = 4
   elseif st == 4 then
-    local img = pokemon().frontPic(pokemon().picSpecies(Pokedex.speciesOf(c.dexNum), c.personality or 0), nil, false,
+    local img = pokemon().frontPic(pokemon().picSpecies(Pokedex.speciesOf(c.dexNum), c.personality or 0), nil, c.shiny==true,
       c.personality or 0)
     c.mon = { view=s, personality=c.personality or 0, dexNum = c.dexNum, img = img and img.image, x = MON_PAGE_X, y = MON_PAGE_Y, x2 = 0, y2 = 0, prio = 0,
       affine = false, scaleY = 1 }
@@ -2029,7 +2029,11 @@ function tasks.caughtExit(s)
     local Stack = require("src.ui.game3.stack")
     Pokedex.Host._s = nil
     Stack.pop(Pokedex.ID)
-    if c.onDone then c.onDone() end
+    if c.onDone then
+      local done=c.onDone;c.onDone=nil
+      done({family='rse',sprite=c.mon,species=Pokedex.speciesOf(c.dexNum),
+        personality=c.personality,otId=c.otId,otSecretId=c.otSecretId,shiny=c.shiny})
+    end
   end
 end
 
@@ -2409,7 +2413,8 @@ function Pokedex.showCaughtMon(species, opts)
   opts = opts or {}
   local s = newView(opts)
   local nat = pokemon().national(species) or species
-  s.caught = { dexNum = nat, personality = opts.personality, onDone = opts.onDone }
+  s.caught = { dexNum = nat, personality = opts.personality, onDone = opts.onDone,
+    otId=opts.otId,otSecretId=opts.otSecretId,shiny=opts.shiny==true }
   s.fn = "caught"
   s.state = 0
   return push(s)

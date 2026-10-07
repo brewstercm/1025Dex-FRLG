@@ -47,7 +47,7 @@ local function nationalFor(Pokemon, raw)
 end
 
 local function addPool(byNational, area, pool)
-  for _, key in ipairs({ "common", "rare", "featured", "special" }) do
+  for _, key in ipairs({ "common", "rare", "featured", "special", "ultra" }) do
     for _, mon in ipairs(pool[key] or {}) do
       addArea(byNational, tonumber(mon.id), area)
     end

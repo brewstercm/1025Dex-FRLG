@@ -1,21 +1,94 @@
 return function(mod)
   local GameVersion=require("src.core.GameVersion")
-  if GameVersion.generation() ~= 3 then return end
+  if GameVersion.generation() ~= 3 then
+    return assert(load(assert(mod:read('gb.lua')),'@1025dex/encounters/gb.lua'))()(mod)
+  end
   local function data(path)
     return assert(load(assert(mod:read(path)), "@"..path))()
   end
   local Policy=data("policy.lua")
   local locations=data("locations.lua")
   for _,loc in ipairs(data("hoenn_locations.lua")) do locations[#locations+1]=loc end
+  local nativeData=data("native.lua")
+  local version=GameVersion.get and GameVersion.get() or 'firered'
+  local native={}
+  for map,rows in pairs(nativeData[version=='leafgreen' and 'leafgreen' or 'firered'])do native[map]=rows end
+  for map,rows in pairs(nativeData.emerald)do native[map]=rows end
+  locations=data("native_profiles.lua").prepare(locations,native)
   local Progress=data("progress.lua")
-  local policy=Policy.new(data("roster.lua"),locations,math.random,Progress.postgame)
+  local function campaignActive()
+    return mod.find and mod:find("kanto_hoenn")~=nil or false
+  end
+  local channels=data("campaign_terrains.lua")
+  for map,rows in pairs(native)do
+    local k=map:gsub('[^%w]',''):upper();channels[k]={}
+    for terrain in pairs(rows)do channels[k][terrain]=true end
+  end
+  local policy=Policy.new(data("roster.lua"),locations,math.random,Progress.postgame,campaignActive,data("campaign.lua"),channels)
+  mod.exports.encounterPoolRevision=function()
+    return campaignActive() and "kanto-hoenn-2" or "native-habitats-2"
+  end
   local OPTION_KEY="fireredGenEncounterPool"
   local active=Policy.default
+  local rs=version=='ruby' or version=='sapphire'
+  local rsTables
+  local function policyMap(map)
+    if rs and type(map)=='string' then return map:gsub('^RU_','EM_'):gsub('^SA_','EM_') end
+    return map
+  end
+  local function refreshRs()
+    if not rs then return end
+    local E=require('src.core.game3.encounters')
+    E.ensureLoaded()
+    if rsTables==E._tables then return end
+    rsTables=E._tables
+    local P=require('src.core.game3.pokemon')
+    local rows={}
+    for map,entry in pairs(rsTables or {})do
+      if type(map)=='string' and map:match('^[RS][UA]_') then
+        local target=policyMap(map);rows[target]={}
+        for _,terrain in ipairs({'land','water','fishing','rocks'})do
+          local area=entry[terrain] or (terrain=='land' and entry.grass)
+          if area and area.slots and (not area.rate or area.rate>0) then
+            local residents={};rows[target][terrain]=residents
+            for _,slot in ipairs(area.slots)do
+              local nat=P.national(slot.species)
+              if nat and nat>=1 and nat<=1025 then
+                local lo=slot.minLevel or slot.level or 1;local hi=slot.maxLevel or lo
+                local old=residents[nat];residents[nat]={math.min(old and old[1] or lo,lo),math.max(old and old[2] or hi,hi)}
+              end
+            end
+          end
+        end
+      end
+    end
+    local rules=E.rules and E.rules()
+    local extra=rules and rules.wildExtra and rules.wildExtra()
+    local feebas=extra and extra.feebas and extra.feebas.mon
+    if feebas and rows.EM_ROUTE119 and rows.EM_ROUTE119.fishing then
+      local nat=P.national(feebas.species)
+      rows.EM_ROUTE119.fishing[nat]={feebas.minLevel,feebas.maxLevel}
+    end
+    local base=data('locations.lua')
+    for _,loc in ipairs(data('hoenn_locations.lua'))do
+      for _,terrain in ipairs({'land','water','fishing','rocks'})do if loc[terrain] then loc[terrain].native=nil end end
+      base[#base+1]=loc
+    end
+    local combined={};for map,entry in pairs(nativeData.firered)do combined[map]=entry end
+    for map,entry in pairs(rows)do combined[map]=entry end
+    local prepared=data('native_profiles.lua').prepare(base,combined)
+    local liveChannels={};for map,entry in pairs(combined)do
+      local k=map:gsub('[^%w]',''):upper();liveChannels[k]={}
+      for terrain in pairs(entry)do liveChannels[k][terrain]=true end
+    end
+    policy=Policy.new(data('roster.lua'),prepared,math.random,Progress.postgame,campaignActive,data('campaign.lua'),liveChannels)
+  end
 
   local function optionBlock(engine)
     return require("src.core.game3.options").block(engine)
   end
   local function readSelection()
+    refreshRs()
     local Runtime=require("src.core.game3.runtime")
     local session=Runtime and Runtime.getSession and Runtime.getSession()
     local engine=session and session.engineOptions
@@ -29,7 +102,7 @@ return function(mod)
 
   -- Keep the maintained FireRed/LeafGreen Area page aligned with both the
   -- ordinary encounter pools and the League-gated special pools.
-  if GameVersion.get() ~= "emerald" then
+  if version == "firered" or version == "leafgreen" then
     local Areas=data("pokedex_areas.lua")
     local okAreas,areaErr=pcall(Areas.install,mod,policy,readSelection,Progress.postgame)
     if not okAreas then
@@ -38,10 +111,15 @@ return function(mod)
   else
     local Areas=data("emerald_pokedex_areas.lua")
     mod.exports.emeraldAreaEncounters=function(headers,species,alteringCaveId)
-      return Areas.build(headers,species,alteringCaveId,policy,readSelection(),Progress.postgame())
+      local selection=readSelection() -- Refresh live Ruby/Sapphire policy first.
+      return Areas.build(headers,species,alteringCaveId,policy,selection,Progress.postgame(),policyMap)
     end
   end
 
+  local function choose(map,level,terrain)
+    local selection=readSelection()
+    return policy:choose(policyMap(map),selection,level,terrain)
+  end
   local okRows,Rows=pcall(require,"src.ui.game3.option_rows")
   if okRows and Rows and type(Rows.build)=="function" and not Rows.__completeDexWilds then
     Rows.__completeDexWilds=true
@@ -132,7 +210,7 @@ return function(mod)
           local Player=require("src.core.game3.player")
           terrain=(Player and Player.surfing) and "water" or "land"
         end
-        local mon,newLevel=policy:choose(mapId,readSelection(),level,terrain)
+        local mon,newLevel=choose(mapId,level,terrain)
         if mon then
           local Pokemon=require("src.core.game3.pokemon")
           local slot=Pokemon.speciesFromName(mon.name)
@@ -145,6 +223,20 @@ return function(mod)
           end
         end
       end
+      -- Visible wilds and DexNav supply an exact species but may also carry
+      -- explicit bonus/stale moves. Rebuild after the final species/level
+      -- selection; do not change trainer parties, roaming or scripted mons.
+      if opts and opts.wild and not (opts.link or opts.trainerId or opts.roamer
+          or opts.wildScripted or opts.firstBattle or opts.oldManTutorial)
+          and type(foe)=='table' and not (foe.roamer or foe.wildScripted)
+          and type(mod.exports.vanillaWildMoves)=='function' then
+        local species=foe.species or foe.speciesId or foe.id
+        local moves,pp,maxPp=mod.exports.vanillaWildMoves(species,foe.level)
+        if moves then
+          local clean={};for k,v in pairs(foe)do clean[k]=v end
+          clean.moves,clean.pp,clean.maxPp=moves,pp,maxPp;foe=clean
+        end
+      end
       return original(owner,game,foe,opts)
     end
   end
@@ -152,7 +244,7 @@ return function(mod)
   mod.exports.chooseWildEncounter = function(mapId, terrain, nativeLevel)
     local okCatalog,Catalog=pcall(require,"src.import.gba.map_catalog")
     if okCatalog and Catalog.resolve then mapId=Catalog.resolve(mapId) end
-    local mon,level=policy:choose(mapId,readSelection(),nativeLevel,terrain)
+    local mon,level=choose(mapId,nativeLevel,terrain)
     if not mon then return nil end
     local P=require("src.core.game3.pokemon")
     local species=P.speciesFromName(mon.name)
@@ -163,24 +255,34 @@ return function(mod)
   mod.exports.dexnavEncounters = function(mapId)
     local okCatalog,Catalog=pcall(require,"src.import.gba.map_catalog")
     if okCatalog and Catalog.resolve then mapId=Catalog.resolve(mapId) end
-    if not policy:location(mapId) then return nil end
+    refreshRs()
+    if not policy:location(policyMap(mapId)) then return nil end
     local native = Encounters.tableFor(mapId)
     if type(native) ~= "table" then return nil end
     local out = {}
     local P = require("src.core.game3.pokemon")
-    for _, terrain in ipairs({"land", "water"}) do
+    for _, terrain in ipairs({"land", "water", "fishing", "rocks"}) do
       local area = native[terrain] or (terrain == "land" and native.grass)
       if area then
-        local pool, loc = policy:pool(mapId, readSelection(), terrain)
+        local pool, loc = policy:pool(policyMap(mapId), readSelection(), terrain)
         local slots, seen = {}, {}
-        for _, group in ipairs({pool.common, pool.rare, pool.featured, pool.special}) do
+        for _, group in ipairs({pool.common, pool.rare, pool.featured, pool.special, pool.ultra}) do
           for _, mon in ipairs(group or {}) do
             local species = P.speciesFromName(mon.name)
             if species and not seen[species] then
               seen[species] = true
               local lo,hi=math.min(loc.hi,math.max(loc.lo,mon.gate or 1)),loc.hi
+              if loc.native and type(loc.native[mon.id])=='table' then lo,hi=loc.native[mon.id][1],loc.native[mon.id][2] end
               if mon.special then lo,hi=Policy.specialLevelRange(mon) end
-              slots[#slots+1]={species=species,minLevel=lo,maxLevel=hi}
+              if Policy.ultraBeasts[mon.id] then lo,hi=Policy.ultraLevelRange(mon,loc,pool.ultraEndgame) end
+              local weight
+              if pool.residentSlots then
+                lo,hi,weight=nil,nil,0
+                for _,slot in ipairs(pool.residentSlots)do if slot[1]==mon.id then
+                  lo=math.min(lo or slot[2],slot[2]);hi=math.max(hi or slot[2],slot[2]);weight=weight+slot[3]
+                end end
+              end
+              slots[#slots+1]={species=species,minLevel=lo,maxLevel=hi,weight=weight}
             end
           end
         end

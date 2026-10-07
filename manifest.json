@@ -1,16 +1,24 @@
 {
   "id": "1025dex",
   "name": "1025Dex",
-  "version": "1.2.5",
+  "version": "1.2.15",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
   "games": [
+    "red",
+    "blue",
+    "yellow",
+    "gold",
+    "silver",
+    "crystal",
+    "ruby",
+    "sapphire",
     "firered",
     "leafgreen",
     "emerald"
   ],
-  "game_version": ">=0.3.36 <0.4.0",
+  "game_version": ">=0.3.54 <0.4.0",
   "category": "CONTENT",
   "priority": 300,
   "permissions": [
@@ -22,6 +30,6 @@
     "g9-battle-sprites",
     "firered_gen_encounters"
   ],
-  "description": "All 1025 Pokemon for FireRed, LeafGreen and Emerald, with animated sprites, event gifts and tickets, generation-selectable encounters and expanded PC storage. See CREDITS.md.",
+  "description": "All 1025 Pokemon across all 11 Gen 1-3 games, with animated sprites, cries, habitat-aware encounters and expanded PC storage; event gifts and tickets in FRLG/Emerald. Compatible with Hoennto 0.2.0. See CREDITS.md.",
   "github": "brewstercm/1025Dex-FRLG"
 }

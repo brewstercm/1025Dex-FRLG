@@ -47,7 +47,7 @@ local function loadOptionalSibling(mod, name)
 end
 
 return function(mod)
-  mod.options:define({
+  local optionRows={
     { key = "national_dex", label = "NATIONAL DEX", type = "choice",
       default = "on", choices = { { "OFF", "off" }, { "ON", "on" } } },
     -- Which ERA's effectiveness chart to play with, not merely whether to
@@ -79,7 +79,15 @@ return function(mod)
     { key = "moves", label = "MOVES", type = "choice",
       default = "gen-native", choices = { { "GEN-NATIVE", "gen-native" },
                                           { "ALL", "all" } } },
-  })
+  }
+  -- These legacy presentation/modern-move switches have no implementation
+  -- in Game3. Hide them there and ignore old saved ALL settings.
+  if require('src.core.GameVersion').generation()==3 then
+    for i=#optionRows,1,-1 do
+      if optionRows[i].key=='stats' or optionRows[i].key=='moves' then table.remove(optionRows,i)end
+    end
+  end
+  mod.options:define(optionRows)
 
   local nationalDex = mod.options:get("national_dex") == "on"
 
@@ -190,7 +198,7 @@ return function(mod)
   -- `move_effects` and the two games' effect vocabularies are disjoint -- see
   -- tools/build_moves.py.  Optional like every other data sibling: a missing
   -- file costs the modern moves and nothing else.
-  local widenMoves = mod.options:get("moves") == "all"
+  local widenMoves = generation ~= 3 and mod.options:get("moves") == "all"
   local movePayload = loadOptionalSibling(mod,
     "data/moves/generated/registry_gen" .. (generation == 2 and 2 or 1) .. ".lua")
   if movePayload and generation ~= 3 then
@@ -265,7 +273,7 @@ return function(mod)
   -- close) costs only these items, never the load.
   local machineTeach = loadOptionalSibling(mod,
     "data/moves/generated/machine_teach.lua")
-  if machineTeach then
+  if machineTeach and generation ~= 3 then
     local Machinemoves = loadSibling(mod, "src/machinemoves.lua")
     if Machinemoves then
       Machinemoves(mod, machineTeach, widenMoves, generation)

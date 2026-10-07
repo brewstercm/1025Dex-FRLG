@@ -4,7 +4,7 @@
 local M = {}
 
 local TERRAINS = { "land", "water", "fishing", "rocks" }
-local GROUPS = { "common", "rare", "featured", "special" }
+local GROUPS = { "common", "rare", "featured", "special", "ultra" }
 
 local function hasCandidate(pool, national)
   for _, group in ipairs(GROUPS) do
@@ -22,7 +22,7 @@ local function hasNative(source, species)
   return false
 end
 
-function M.build(headers, species, alteringCaveId, policy, choice, postgame)
+function M.build(headers, species, alteringCaveId, policy, choice, postgame, policyMap)
   local Pokemon = require("src.core.game3.pokemon")
   local MapCatalog = require("src.import.gba.map_catalog")
   local national = Pokemon.national(species)
@@ -32,6 +32,7 @@ function M.build(headers, species, alteringCaveId, policy, choice, postgame)
       local g, n = tonumber(header.mapGroup), tonumber(header.mapNum)
       local mapId = g and n and MapCatalog.mapIdFor(g, n)
       if mapId then
+        mapId = policyMap and policyMap(mapId) or mapId
         local active = header.variants and header.variants[(alteringCaveId or 0) + 1] or header
         local row = { mapGroup = g, mapNum = n }
         for _, terrain in ipairs(TERRAINS) do

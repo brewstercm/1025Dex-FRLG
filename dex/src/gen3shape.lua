@@ -56,7 +56,7 @@ function M.record(source, machines)
     catchRate = source.catchRate or 0, baseExp = source.baseExp or 0,
     genderRatio = M.genderRatio(M.genderRates and M.genderRates[source.id]),
     growthRate = source.growthRate or "MEDIUM_FAST",
-    learnset = source.learnset or {}, tmhm = machines or {}, evolutions = {},
+    learnset = source.learnset or {}, tmhm = machines or source.tmhm or {}, evolutions = {},
     dexEntry = { kind = entry.kind or "", height = math.floor(h * 10 + .5),
       weight = math.floor(w * 10 + .5) },
     -- .rgba references leave the base art path to the animated-sprite mod.
@@ -79,9 +79,8 @@ function M.install(mod, national)
     function(path) return mod:read(path) end, P._moveNames)
   mod.log:info(('Game3 learnsets rebuilt: %d species, %d Gen 3 substitutions')
     :format(repaired or 0, substitutions or 0))
-  local machineSource = mod:read('data/species/generated/firered_machines.lua')
-  local machineChunk = machineSource and load(machineSource, 'firered_machines')
-  local machineCompat = machineChunk and machineChunk() or {}
+  local Moves=assert(load(assert(mod:read('src/gen3moves.lua'))))()
+  local moveRules=Moves.load(function(path)return mod:read(path)end)
 
   -- Gen 3's internal species slots diverge from National Dex numbers after
   -- Celebi. A caught Bidoof is slot 463, while National #463 is Lickilicky.
@@ -143,7 +142,10 @@ function M.install(mod, national)
   local addedSlots = {}
   for id, source in pairs(national.register or {}) do
     if not source.form and source.dex > 386 and source.dex <= 1025 then
-      local row = M.record(source, machineCompat[id])
+      -- Persist on the source too: nationaldex's later registration pass
+      -- reshapes this same record and must not erase its machine list.
+      source.tmhm=Moves.machineIds(moveRules,source.dex,P._moveNames)
+      local row = M.record(source)
       row.name = source.name:upper()
       records[id], ops[id] = row, true
       addedSlots[row.index] = true
@@ -207,6 +209,7 @@ function M.install(mod, national)
   local Evolutions = assert(load(assert(mod:read('src/gen3evolutions.lua')), '@gen3evolutions.lua'))()
   local ItemsData = require('src.core.game3.items_data')
   Evolutions.install(mod, P, M.slot, function(key) return ItemsData.toNumericId(key) end)
+  Moves.install(mod,P,M.slot,moveRules)
 end
 
 return M

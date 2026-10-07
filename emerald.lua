@@ -1,6 +1,7 @@
 -- Extend Emerald's native RSE scene and retain its Hoenn numbering/layout.
 return function(mod)
-  if require("src.core.GameVersion").get()~="emerald" then return end
+  local version=require("src.core.GameVersion").get()
+  if version~="emerald" and version~="ruby" and version~="sapphire" then return end
   local function data(path) return assert(load(assert(mod:read(path)),"@"..mod.path.."/"..path))() end
   local Pokedex=data("compat/emerald_pokedex.lua")
   Pokedex.areaEncounters=mod.exports.emeraldAreaEncounters
@@ -29,7 +30,7 @@ return function(mod)
   end
   local originalEnabled=Dex.nationalEnabled
   Dex.nationalEnabled=function(session)
-    if require("src.core.GameVersion").get()=="emerald" then return true end
+    if require("src.core.GameVersion").get()==version then return true end
     return originalEnabled(session)
   end
   local originalOrders,ordersSource,ordersCache=Gfx.orders,nil,nil
@@ -71,6 +72,5 @@ return function(mod)
     end
     return {items=items,count=count}
   end
-  mod.exports.supportedGames={"firered","leafgreen","emerald"}
-  mod.log:info("Emerald native Pokedex extended: 1025 National entries; original Hoenn list retained.")
+  mod.log:info("RSE native Pokedex extended: 1025 National entries; original Hoenn list retained.")
 end

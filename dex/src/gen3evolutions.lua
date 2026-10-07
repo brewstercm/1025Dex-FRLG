@@ -1,4 +1,4 @@
--- Install the shipped evolution graph in FireRed's numeric species registry.
+-- Install the shipped evolution graph in FR/LG and Emerald's species registry.
 -- Species from National #387 onward have no ROM evolution rows of their own.
 local M = {}
 
@@ -92,7 +92,7 @@ local function heldItemId(mon, itemId)
   return nil
 end
 
-function M.build(read, slot, itemId, useCompat)
+function M.build(read, slot, itemId, moveAvailable, useCompat)
   local index = decode(read, 'data/evolutions/generated/index.lua')
   local shards, rows, conditions, counts = {}, {}, {},
     {level=0, trade=0, item=0, fallback=0, held=0, compat=0}
@@ -135,7 +135,8 @@ function M.build(read, slot, itemId, useCompat)
                   elseif id == 'NINCADA' and edge.id == 'NINJASK' then
                     method = 13
                   end
-                elseif chosen.minHappiness or chosen.knownMove or chosen.minBeauty then
+                elseif chosen.minHappiness or chosen.knownMove or chosen.minBeauty
+                    or chosen.partySpecies or chosen.partyType then
                   method, param, guard = 4, 1, chosen
                 end
                 -- A conditional level must never evolve to the wrong branch.
@@ -144,7 +145,8 @@ function M.build(read, slot, itemId, useCompat)
                     or chosen.minBeauty or chosen.heldItem or chosen.knownMoveType
                     or chosen.location or chosen.minSteps or chosen.usedMove) then
                   if chosen.heldItem or chosen.knownMoveType or chosen.location
-                      or chosen.minSteps or chosen.usedMove then
+                      or chosen.minSteps or chosen.usedMove
+                      or (chosen.knownMove and moveAvailable and not moveAvailable(chosen.knownMove)) then
                     method = nil -- This action is handled by the level 36 fallback below.
                   else
                     guard = chosen
@@ -162,14 +164,37 @@ function M.build(read, slot, itemId, useCompat)
               if method then
                 rows[from] = rows[from] or {}
                 rows[from][#rows[from]+1] = {method=method,param=param,target=target}
+                -- This pack represents Meowstic's two sexes with one base
+                -- slot; both male and female Espurr must reach that slot.
+                if id == 'ESPURR' and guard then
+                  local copy = {}; for k,v in pairs(guard) do if k ~= 'gender' then copy[k]=v end end
+                  guard = copy
+                end
                 if guard then
                   conditions[from] = conditions[from] or {}
                   conditions[from][target] = guard
                 end
               else
                 fallback[#fallback+1] = {method=4,param=36,target=target}
+                if chosen.gender then
+                  conditions[from] = conditions[from] or {}
+                  conditions[from][target] = {gender=chosen.gender}
+                end
               end
             end
+          end
+        end
+        -- Sun/Moon version-exclusive branches share a level but cannot be
+        -- selected by a Gen 3 cartridge version. Keep both reachable at 53,
+        -- using the same attack/defense convention as other adapted branches.
+        if id == 'COSMOEM' and rows[from] and #rows[from] == 2 then
+          local solgaleo, lunala
+          for _, entry in ipairs(rows[from]) do
+            if entry.target == slot(791) then solgaleo = entry else lunala = entry end
+          end
+          if solgaleo and lunala then
+            solgaleo.method = 8
+            rows[from] = {lunala, solgaleo}
           end
         end
         if #fallback > 0 then
@@ -182,7 +207,14 @@ function M.build(read, slot, itemId, useCompat)
           for i, entry in ipairs(fallback) do
             if split then entry.method = split[i] end
             if i <= 3 or #fallback == 1 then
-              table.insert(rows[from], 1, entry)
+              local rule = conditions[from] and conditions[from][entry.target]
+              if rule and rule.gender then
+                -- Gender-specific adapted stone branches (Gallade/Froslass)
+                -- must win over the ordinary earlier/later level evolution.
+                rows[from][#rows[from]+1] = entry
+              else
+                table.insert(rows[from], 1, entry)
+              end
               counts.fallback = counts.fallback + 1
             end
           end
@@ -274,14 +306,51 @@ function M.build(read, slot, itemId, useCompat)
 end
 
 function M.install(mod, pokemon, slot, itemId)
-  local conditions = {}
+  local conditions, installedRows = {}, {}
+  local extraIndex, extraShards
+  local function ensureGender(from)
+    local meta = pokemon._speciesMeta and pokemon._speciesMeta[from]
+    if meta and meta.genderRatio ~= nil then return end
+    local id = pokemon.keyName(from)
+    if not id then return end
+    if not extraIndex then
+      extraIndex = decode(function(path) return mod:read(path) end,
+        'data/species/generated/extras/index.lua')
+      extraShards = {}
+    end
+    local number = extraIndex[id]
+    if not number then return end
+    if not extraShards[number] then
+      extraShards[number] = decode(function(path) return mod:read(path) end,
+        ('data/species/generated/extras/%03d.lua'):format(number))
+    end
+    local extra = extraShards[number][id]
+    local rate = extra and tonumber(extra.genderRate)
+    if rate == nil then return end
+    pokemon._speciesMeta = pokemon._speciesMeta or {}
+    meta = meta or {}; pokemon._speciesMeta[from] = meta
+    meta.genderRatio = rate < 0 and 255 or rate == 8 and 254
+      or rate == 0 and 0 or math.floor(rate * 255 / 8)
+  end
+  local function moveAvailable(name)
+    local wanted = name:upper():gsub('[^A-Z0-9]', '')
+    for _, candidate in pairs(pokemon._moveNames or {}) do
+      if tostring(candidate):upper():gsub('[^A-Z0-9]', '') == wanted then return true end
+    end
+    return false
+  end
   local function apply()
     if not pokemon._names or not pokemon._evolutions then return end
     local game = require('src.core.GameVersion').get()
     local generated, guards, counts = M.build(
-      function(path) return mod:read(path) end, slot, itemId,
+      function(path) return mod:read(path) end, slot, itemId, moveAvailable,
       game == 'firered' or game == 'leafgreen')
     conditions = guards
+    for from, rules in pairs(guards) do
+      for _, rule in pairs(rules) do
+        if rule.gender then ensureGender(from); break end
+      end
+    end
     for from, additions in pairs(generated) do
       local original = pokemon._evolutions[from] or {}
       local merged, targets = {}, {}
@@ -300,6 +369,7 @@ function M.install(mod, pokemon, slot, itemId)
         end
       end
       pokemon._evolutions[from] = merged
+      installedRows[from] = merged
     end
     -- Some ROM trade rows have no default edge in the generated graph.
     for from, original in pairs(pokemon._evolutions) do
@@ -316,6 +386,24 @@ function M.install(mod, pokemon, slot, itemId)
   end
   pokemon.onReload(apply, '1025dex_firered_evolutions')
   apply()
+  -- Registry merges happen after mod entry points, and Gen3Compat adds its
+  -- ROM-reload writer after our onReload callback. Both can replace rows with
+  -- the empty `evolutions` lists used to register extended species. Restore
+  -- after the initial merge and whenever the engine reads a replaced row.
+  -- Comparing row identity also handles an in-place write to the same table.
+  local originalEvolutions = pokemon.evolutions
+  pokemon.evolutions = function(species)
+    local rows = originalEvolutions(species) -- Also loads a fresh ROM pack.
+    local from = type(species) == 'table' and pokemon.speciesOf(species) or species
+    if type(from) == 'string' then from = pokemon.speciesFromName(from) or tonumber(from) end
+    from = tonumber(from)
+    if from and installedRows[from] and rows ~= installedRows[from] then
+      apply()
+      rows = originalEvolutions(species)
+    end
+    return rows
+  end
+  if mod.events and mod.events.on then mod.events:on('mods.loaded', apply) end
   if mod.hooks and mod.hooks.wrap then
     mod.hooks:wrap('evolution.check', function(nextCheck, game, mon, view, ctx)
       local from = pokemon.speciesOf and pokemon.speciesOf(mon)
@@ -334,8 +422,14 @@ function M.install(mod, pokemon, slot, itemId)
           if rule.unlessHeldItemId and held == rule.unlessHeldItemId then return false end
           local friendship = pokemon.friendshipOf and pokemon.friendshipOf(mon)
           if rule.minHappiness and (not friendship or friendship < rule.minHappiness) then return false end
-          if rule.minBeauty and (not mon.beauty or mon.beauty < rule.minBeauty) then return false end
-          if rule.gender and pokemon.gender(from, mon.personality) ~= rule.gender:upper():sub(1,1) then return false end
+          local beauty = tonumber(mon.contest and mon.contest.beauty) or tonumber(mon.beauty) or 0
+          if rule.minBeauty and beauty < rule.minBeauty then return false end
+          if rule.gender then
+            -- PokeAPI encodes female as 1 and male as 2; the engine returns F/M.
+            local gender = ({[1]='F', [2]='M'})[tonumber(rule.gender)]
+              or tostring(rule.gender):upper():sub(1,1)
+            if pokemon.gender(from, mon.personality) ~= gender then return false end
+          end
           if rule.knownMove then
             local wanted = rule.knownMove:upper():gsub('[^A-Z0-9]', '')
             local found = false
@@ -352,7 +446,25 @@ function M.install(mod, pokemon, slot, itemId)
             if rule.timeOfDay == 'day' and (hour < 6 or hour >= 18) then return false end
             if rule.timeOfDay == 'night' and (hour >= 6 and hour < 18) then return false end
           end
-          if rule.partySpecies or rule.partyType then return false end
+          if rule.partySpecies or rule.partyType then
+            local party = ctx.session and ctx.session.party or {}
+            local wantedSpecies = rule.partySpecies and rule.partySpecies:upper():gsub('[^A-Z0-9]', '')
+            local wantedType = rule.partyType and rule.partyType:upper()
+            local found = false
+            for _, member in ipairs(party) do
+              local species = pokemon.speciesOf(member)
+              local name = species and pokemon.keyName(species)
+              if wantedSpecies and name and name:upper():gsub('[^A-Z0-9]', '') == wantedSpecies then found=true end
+              if wantedType and species then
+                local types = pokemon.types(species)
+                -- Game3 returns a list of two numeric type IDs (Dark = 17).
+                for _, value in ipairs(types) do
+                  if tostring(value):upper() == wantedType or (wantedType == 'DARK' and value == 17) then found=true end
+                end
+              end
+            end
+            if not found then return false end
+          end
         end
       end
       return nextCheck(game,mon,view,ctx)
